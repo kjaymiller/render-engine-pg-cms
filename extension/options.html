@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>pg-cms options</title>
+  <style>
+    body { font: 14px system-ui; padding: 1rem; min-width: 320px; }
+    label { display: grid; gap: 0.25rem; margin-bottom: 0.75rem; }
+    input { padding: 0.4rem; font: inherit; width: 100%; box-sizing: border-box; }
+    button { padding: 0.4rem 0.8rem; font: inherit; cursor: pointer; }
+    .ok { color: #2a7a2a; margin-left: 0.5rem; }
+  </style>
+</head>
+<body>
+  <form id="f">
+    <label>
+      <span>CMS base URL</span>
+      <input type="url" id="cmsBase" placeholder="http://localhost:8000" required>
+    </label>
+    <button type="submit">Save</button>
+    <span id="status" class="ok"></span>
+  </form>
+  <script src="options.js"></script>
+</body>
+</html>

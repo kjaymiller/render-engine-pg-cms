@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status %}
+{% block title %}{{ ct.name }}{% endblock %}
+{% block content %}
+<header class="page-head" data-kicker="Section · {{ ct.name }}">
+  <h1><em>{{ ct.name }}</em></h1>
+  <a class="btn" href="/c/{{ ct.name }}/new">New {{ ct.name }}</a>
+</header>
+
+{% if flash %}
+  <div class="flash flash-{{ flash_level }}">{{ flash }}</div>
+{% endif %}
+
+{% macro status_cluster(r) %}
+  {% if syndication_enabled %}
+  <span class="status-cluster">
+    {% if mastodon_enabled %}{{ mastodon_status(r) }}{% endif %}
+    {% if bluesky_enabled %}{{ bluesky_status(r) }}{% endif %}
+    {{ webmentions_status(r) }}
+  </span>
+  {% endif %}
+{% endmacro %}
+
+{% if not records %}
+  <p class="muted">No records yet.</p>
+{% elif ct.name == "microblog" %}
+<div class="feed">
+  {% for r in records %}
+  <article class="feed-item">
+    <header class="feed-head">
+      <time datetime="{{ r.date or r.created_at }}">
+        {{ (r.date or r.created_at).strftime("%b %d, %Y · %H:%M") if (r.date or r.created_at) else "" }}
+      </time>
+      {{ status_cluster(r) }}
+    </header>
+    {% if r.content %}
+      <div class="feed-body markdown">{{ r.content | md | safe }}</div>
+    {% endif %}
+    {% if r.image_url %}
+      <a class="feed-img" href="/c/{{ ct.name }}/{{ r.id }}">
+        <img src="{{ r.image_url }}" alt="" loading="lazy">
+      </a>
+    {% endif %}
+    {% if r.external_link %}
+      <a class="feed-link" href="{{ r.external_link }}" target="_blank" rel="noopener">
+        ↗ {{ r.external_link }}
+      </a>
+    {% endif %}
+    <footer class="feed-foot">
+      <span class="muted">#{{ r.id }} · {{ r.slug or "" }}</span>
+      <div class="row-actions">
+        {% if mastodon_enabled and not r.get("mastodon_url") %}
+          <form method="post" action="/c/{{ ct.name }}/{{ r.id }}/mastodon"
+                onsubmit="return confirm('Post this {{ ct.name }} to Mastodon?');">
+            <button type="submit" class="secondary">Post to Mastodon</button>
+          </form>
+        {% endif %}
+        {% if bluesky_enabled and not r.get("bluesky_url") %}
+          <form method="post" action="/c/{{ ct.name }}/{{ r.id }}/bluesky"
+                onsubmit="return confirm('Post this {{ ct.name }} to Bluesky?');">
+            <button type="submit" class="secondary">Post to Bluesky</button>
+          </form>
+        {% endif %}
+        <a href="/c/{{ ct.name }}/{{ r.id }}">Edit</a>
+        <form method="post" action="/c/{{ ct.name }}/{{ r.id }}/delete"
+              onsubmit="return confirm('Delete this record?');">
+          <button type="submit" class="danger">Delete</button>
+        </form>
+      </div>
+    </footer>
+  </article>
+  {% endfor %}
+</div>
+{% elif ct.name == "notes" %}
+<div class="card-grid">
+  {% for r in records %}
+  <article class="card">
+    {% if r.image_url %}
+      <a class="card-img" href="/c/{{ ct.name }}/{{ r.id }}">
+        <img src="{{ r.image_url }}" alt="" loading="lazy">
+      </a>
+    {% endif %}
+    <div class="card-body">
+      <h3 class="card-title">
+        <a href="/c/{{ ct.name }}/{{ r.id }}">
+          {{ r.title or r.slug or "(untitled)" }}
+        </a>
+      </h3>
+      {% if r.description %}
+        <p class="card-desc">{{ r.description }}</p>
+      {% elif r.content %}
+        <p class="card-desc">{{ r.content | truncate(140) }}</p>
+      {% endif %}
+      <div class="card-meta">
+        <span class="muted">{{ (r.date or r.created_at).strftime("%Y-%m-%d") if (r.date or r.created_at) else "" }}</span>
+        <span class="muted">#{{ r.id }}</span>
+      </div>
+      <div class="card-actions row-actions">
+        <a href="/c/{{ ct.name }}/{{ r.id }}">Edit</a>
+        <form method="post" action="/c/{{ ct.name }}/{{ r.id }}/delete"
+              onsubmit="return confirm('Delete this record?');">
+          <button type="submit" class="danger">Delete</button>
+        </form>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<table class="records">
+  <thead>
+    <tr>
+      <th>id</th>
+      <th>slug / title</th>
+      <th>date</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td>{{ r.id }}</td>
+      <td>
+        {{ r.title or r.name or r.slug or "(untitled)" }}
+        {{ status_cluster(r) }}
+      </td>
+      <td>{{ r.date or r.created_at or "" }}</td>
+      <td class="row-actions">
+        <a href="/c/{{ ct.name }}/{{ r.id }}">Edit</a>
+        <form method="post" action="/c/{{ ct.name }}/{{ r.id }}/delete"
+              onsubmit="return confirm('Delete this record?');">
+          <button type="submit" class="danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

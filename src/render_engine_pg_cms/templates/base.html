@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}RenderPG{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Figtree:ital,wght@0,300..700;1,300..700&family=JetBrains+Mono:wght@400;500&family=Allura&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+<body x-data="themeSwitcher" :data-theme="theme">
+  <header class="masthead">
+    <div class="masthead-inner">
+      <a href="/" class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-word">RenderPG</span>
+      </a>
+      <nav class="sections">
+        {% for name, ct in (content_types or {}).items() %}
+          <a href="/c/{{ name }}" class="section-link">
+            <span class="section-dot">—</span>{{ name }}
+          </a>
+        {% endfor %}
+      </nav>
+      <div class="theme-switch" role="group" aria-label="Uniform">
+        <template x-for="t in themes" :key="t.id">
+          <button type="button" class="theme-chip"
+                  :class="theme === t.id ? 'is-active' : ''"
+                  :title="t.label"
+                  @click="set(t.id)">
+            <span class="theme-swatch" :style="`background:${t.swatch}`"></span>
+            <span class="theme-label" x-text="t.short"></span>
+          </button>
+        </template>
+      </div>
+      <form method="post" action="/publish" class="publish">
+        <button type="submit" class="btn btn-ghost">
+          <span>Publish</span>
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                  d="M5 12h14M13 6l6 6-6 6"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+    <div class="masthead-rule"></div>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    document.addEventListener("alpine:init", () => {
+      Alpine.data("themeSwitcher", () => ({
+        theme: localStorage.getItem("renderpg-theme") || "home",
+        themes: [
+          { id: "home", label: "Home whites", short: "Home", swatch: "#f6efe0" },
+          { id: "road", label: "Road · night", short: "Road", swatch: "#13274f" },
+          { id: "city", label: "City Connect", short: "ATL", swatch: "#a8c9dc" },
+        ],
+        set(id) {
+          this.theme = id;
+          localStorage.setItem("renderpg-theme", id);
+        },
+      }));
+    });
+    // Set theme ASAP to avoid flash of wrong theme.
+    (function () {
+      const t = localStorage.getItem("renderpg-theme") || "home";
+      document.body && document.body.setAttribute("data-theme", t);
+    })();
+  </script>
+  <footer class="colophon">
+    <span>set in Fraunces &amp; Source Serif</span>
+    <span>·</span>
+    <span>tended by hand</span>
+    <span>·</span>
+    <span>go braves ⚾</span>
+  </footer>
+</body>
+</html>

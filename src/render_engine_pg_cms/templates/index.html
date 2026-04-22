@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status %}
+{% block title %}Timeline{% endblock %}
+
+{% block content %}
+
+<section class="quick-box">
+  <h2>Quick add</h2>
+  {% if url %}
+    <p class="muted">
+      Capturing: <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>
+    </p>
+  {% endif %}
+  {% if title %}
+    <p><strong>{{ title }}</strong></p>
+  {% endif %}
+  <form class="record-form quick-form" onsubmit="return quickGo(event)">
+    <label>
+      <span>Type</span>
+      <select id="quick-type" name="type">
+        {% for name in content_types %}
+          <option value="{{ name }}">{{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">New →</button>
+  </form>
+</section>
+
+<header class="page-head" data-kicker="{{ total }} entries · page {{ page }} / {{ pages }}">
+  <h1><em>Timeline</em></h1>
+  <a class="btn btn-ghost" href="#" onclick="document.getElementById('quick-type').focus(); return false;">Compose</a>
+</header>
+
+<div x-data="timeline()" class="timeline">
+  <div class="tl-filters" role="tablist">
+    <button type="button" role="tab"
+            class="tl-filter" :class="filter === 'all' ? 'is-active' : ''"
+            @click="filter = 'all'">
+      <span>All</span>
+      <span class="tl-filter-count">{{ rows | length }}</span>
+    </button>
+    {% for t in timeline_types %}
+      {% set cnt = rows | selectattr("_type", "equalto", t) | list | length %}
+      <button type="button" role="tab"
+              class="tl-filter tl-filter-{{ t }}"
+              :class="filter === '{{ t }}' ? 'is-active' : ''"
+              @click="filter = '{{ t }}'">
+        <span>{{ t }}</span>
+        <span class="tl-filter-count">{{ cnt }}</span>
+      </button>
+    {% endfor %}
+  </div>
+
+  <ol class="tl-list">
+    {% for r in rows %}
+      {% set when = r.date or r.created_at %}
+      <li class="tl-item tl-item-{{ r._type }}"
+          data-type="{{ r._type }}"
+          x-show="filter === 'all' || filter === '{{ r._type }}'"
+          x-transition:enter="tl-enter"
+          x-transition:enter-start="tl-enter-start"
+          x-transition:enter-end="tl-enter-end">
+        <div class="tl-rail">
+          <span class="tl-dot tl-dot-{{ r._type }}" aria-hidden="true"></span>
+          <span class="tl-badge">{{ r._type }}</span>
+          <time class="tl-when" datetime="{{ when }}">
+            {{ when.strftime("%b %d") if when else "—" }}
+            <small>{{ when.strftime("%Y · %H:%M") if when else "" }}</small>
+          </time>
+        </div>
+        <article class="tl-card">
+          <header class="tl-card-head">
+            <h3 class="tl-title">
+              <a href="/c/{{ r._type }}/{{ r.id }}">
+                {% if r.title %}{{ r.title }}
+                {% elif r.content %}{{ r.content | striptags | truncate(80) }}
+                {% else %}(untitled){% endif %}
+              </a>
+            </h3>
+            <span class="status-cluster">
+              {% if r._type in ("microblog", "blog") %}
+                {% if mastodon_enabled %}{{ mastodon_status(r) }}{% endif %}
+                {% if bluesky_enabled %}{{ bluesky_status(r) }}{% endif %}
+                {{ webmentions_status(r) }}
+              {% endif %}
+            </span>
+          </header>
+
+          {% if r._type == "microblog" and r.content %}
+            <div class="tl-body markdown">{{ r.content | md | safe }}</div>
+          {% elif r.description %}
+            <p class="tl-desc">{{ r.description }}</p>
+          {% elif r.content and r._type != "microblog" %}
+            <p class="tl-desc">{{ r.content | striptags | truncate(200) }}</p>
+          {% endif %}
+
+          {% if r.image_url %}
+            <a class="tl-img" href="/c/{{ r._type }}/{{ r.id }}">
+              <img src="{{ r.image_url }}" alt="" loading="lazy">
+            </a>
+          {% endif %}
+
+          {% if r.external_link %}
+            <a class="tl-link" href="{{ r.external_link }}" target="_blank" rel="noopener">
+              ↗ {{ r.external_link }}
+            </a>
+          {% endif %}
+
+          <footer class="tl-foot">
+            <span>#{{ r.id }}{% if r.slug %} · {{ r.slug }}{% endif %}</span>
+            <a href="/c/{{ r._type }}/{{ r.id }}">Edit →</a>
+          </footer>
+        </article>
+      </li>
+    {% else %}
+      <li class="muted" style="padding: 2rem 0;">No entries yet.</li>
+    {% endfor %}
+  </ol>
+
+  {% if pages > 1 %}
+    <nav class="tl-pager" aria-label="Pagination">
+      {% if page > 1 %}
+        <a class="btn btn-ghost" href="?page={{ page - 1 }}">← Newer</a>
+      {% else %}
+        <span class="btn btn-ghost is-disabled" aria-disabled="true">← Newer</span>
+      {% endif %}
+      <span class="tl-pager-info">
+        page <strong>{{ page }}</strong> of {{ pages }}
+      </span>
+      {% if page < pages %}
+        <a class="btn btn-ghost" href="?page={{ page + 1 }}">Older →</a>
+      {% else %}
+        <span class="btn btn-ghost is-disabled" aria-disabled="true">Older →</span>
+      {% endif %}
+    </nav>
+  {% endif %}
+</div>
+
+<script>
+  document.addEventListener("alpine:init", () => {
+    Alpine.data("timeline", () => ({
+      filter: "all",
+      init() {
+        const params = new URLSearchParams(location.search);
+        if (params.has("type")) this.filter = params.get("type");
+        this.$watch("filter", (v) => {
+          const p = new URLSearchParams(location.search);
+          if (v === "all") p.delete("type"); else p.set("type", v);
+          const qs = p.toString();
+          history.replaceState(null, "", qs ? "?" + qs : location.pathname);
+        });
+      },
+    }));
+  });
+
+  const URL_PARAM = {{ (url or "") | tojson }};
+  const TITLE_PARAM = {{ (title or "") | tojson }};
+  function quickGo(e) {
+    e.preventDefault();
+    const type = document.getElementById("quick-type").value;
+    const params = new URLSearchParams();
+    if (URL_PARAM) params.set("url", URL_PARAM);
+    if (TITLE_PARAM) params.set("title", TITLE_PARAM);
+    const qs = params.toString();
+    window.location.href = `/c/${type}/new${qs ? "?" + qs : ""}`;
+    return false;
+  }
+</script>
+{% endblock %}

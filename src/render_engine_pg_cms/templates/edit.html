@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status %}
+{% block title %}{{ "New" if is_new else "Edit" }} {{ ct.name }}{% endblock %}
+{% block content %}
+{% set content_rows = {"microblog": 4, "notes": 10, "blog": 22}.get(ct.name, 10) %}
+{% set desc_rows = {"notes": 3, "blog": 3}.get(ct.name, 2) %}
+{% set show_counter = ct.name == "microblog" %}
+{% set counter_limit = 280 %}
+
+<header class="page-head" data-kicker="{{ 'Drafting' if is_new else 'Revising' }} · {{ ct.name }}">
+  <h1>
+    {{ "New" if is_new else "Edit" }} <em>{{ ct.name }}</em>
+    {% if (has_mastodon or has_bluesky) and not is_new %}
+      <span class="status-cluster">
+        {% if has_mastodon %}{{ mastodon_status(record) }}{% endif %}
+        {% if has_bluesky %}{{ bluesky_status(record) }}{% endif %}
+        {{ webmentions_status(record) }}
+      </span>
+    {% endif %}
+  </h1>
+  <a href="/c/{{ ct.name }}">Back</a>
+</header>
+
+{% if flash %}
+  <div class="flash flash-{{ flash_level }}">{{ flash }}</div>
+{% endif %}
+{% if form_error %}
+  <div class="flash flash-err">{{ form_error }}</div>
+{% endif %}
+
+{% if (has_mastodon or has_bluesky) and not is_new %}
+  <section class="syndication-box">
+    {% if has_mastodon %}
+      {% if record.get("mastodon_url") %}
+        <span class="muted">Mastodon:</span>
+        <a href="{{ record.mastodon_url }}" target="_blank" rel="noopener">
+          {{ record.mastodon_url }}
+        </a>
+      {% else %}
+        <form method="post" action="/c/{{ ct.name }}/{{ record.id }}/mastodon"
+              onsubmit="return confirm('Post this {{ ct.name }} to Mastodon?');">
+          <button type="submit">Post to Mastodon</button>
+        </form>
+      {% endif %}
+    {% endif %}
+    {% if has_bluesky %}
+      {% if record.get("bluesky_url") %}
+        <span class="muted">Bluesky:</span>
+        <a href="{{ record.bluesky_url }}" target="_blank" rel="noopener">
+          {{ record.bluesky_url }}
+        </a>
+      {% else %}
+        <form method="post" action="/c/{{ ct.name }}/{{ record.id }}/bluesky"
+              onsubmit="return confirm('Post this {{ ct.name }} to Bluesky?');">
+          <button type="submit">Post to Bluesky</button>
+        </form>
+      {% endif %}
+    {% endif %}
+    {% if has_mastodon and has_bluesky
+          and not record.get("mastodon_url")
+          and not record.get("bluesky_url") %}
+      <form method="post" action="/c/{{ ct.name }}/{{ record.id }}/syndicate"
+            onsubmit="return confirm('Post this {{ ct.name }} to Mastodon AND Bluesky?');">
+        <button type="submit">Post to Both</button>
+      </form>
+    {% endif %}
+  </section>
+{% endif %}
+
+<script id="edit-initial" type="application/json">
+  {{ {"slug": record.get("slug") or "",
+      "title": record.get("title") or record.get("name") or "",
+      "contentLen": (record.get("content") or "") | length,
+      "slugWasSet": record.get("slug") is not none and record.get("slug") != ""} | tojson }}
+</script>
+<script>
+  document.addEventListener("alpine:init", () => {
+    const initial = JSON.parse(
+      document.getElementById("edit-initial").textContent
+    );
+    Alpine.data("geoLookup", () => ({
+      q: "",
+      status: "",
+      level: "",
+      async run() {
+        const q = (this.q || "").trim();
+        if (!q) { this.status = "Enter a city, region, country."; this.level = "err"; return; }
+        this.status = "Looking up…"; this.level = "";
+        try {
+          const r = await fetch("/api/geocode?q=" + encodeURIComponent(q));
+          if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            this.status = data.error || `Lookup failed (${r.status})`;
+            this.level = "err"; return;
+          }
+          const d = await r.json();
+          const form = this.$el.closest("form");
+          const lat = form.querySelector('[name="latitude"]');
+          const lon = form.querySelector('[name="longitude"]');
+          if (lat) lat.value = d.lat.toFixed(6);
+          if (lon) lon.value = d.lon.toFixed(6);
+          if (!form.querySelector('[name="location"]').value) {
+            form.querySelector('[name="location"]').value = d.display_name;
+          }
+          this.status = "Matched: " + d.display_name;
+          this.level = "ok";
+        } catch (e) {
+          this.status = "Network error: " + e.message;
+          this.level = "err";
+        }
+      },
+    }));
+
+    Alpine.data("editForm", () => ({
+      slug: initial.slug,
+      title: initial.title,
+      slugTouched: initial.slugWasSet,
+      contentLen: initial.contentLen,
+      slugify(s) {
+        return (s || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 80);
+      },
+      nowLocal() {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, "0");
+        return (
+          d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
+          + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes())
+        );
+      },
+      init() {
+        this.$watch("title", (v) => {
+          if (!this.slugTouched && v) this.slug = this.slugify(v);
+        });
+      },
+    }));
+  });
+</script>
+
+<form method="post" class="record-form" novalidate x-data="editForm">
+  {% for col in ct.primary_columns if col not in ("id", "created_at", "updated_at") %}
+    {% set val = record.get(col, "") if record else "" %}
+    {% set err = errors.get(col) %}
+    <label class="{{ 'has-error' if err else '' }}">
+      <span>{{ col }}</span>
+
+      {% if col == "content" %}
+        <textarea name="content" rows="{{ content_rows }}"
+                  {% if show_counter %}x-on:input="contentLen = $event.target.value.length"{% endif %}
+        >{{ val or "" }}</textarea>
+        {% if show_counter %}
+          <small class="muted counter"
+                 :class="contentLen > {{ counter_limit }} ? 'over' : ''">
+            <span x-text="contentLen"></span> / {{ counter_limit }}
+          </small>
+        {% endif %}
+
+      {% elif col == "description" %}
+        <textarea name="description" rows="{{ desc_rows }}">{{ val or "" }}</textarea>
+
+      {% elif col == "date" %}
+        <div class="date-row">
+          <input type="datetime-local" name="date"
+                 value="{{ val.strftime('%Y-%m-%dT%H:%M') if val.strftime is defined else (val or '') }}"
+                 x-ref="dateInput">
+          <button type="button" class="secondary"
+                  @click="$refs.dateInput.value = nowLocal()">Now</button>
+        </div>
+
+      {% elif col == "slug" %}
+        <input type="text" name="slug"
+               x-model="slug"
+               @input="slugTouched = true">
+
+      {% elif col == "title" or col == "name" %}
+        <input type="text" name="{{ col }}" x-model="title">
+
+      {% elif col == "image_url" or col == "external_link" or col == "url" %}
+        <input type="url" name="{{ col }}" value="{{ val or '' }}">
+
+      {% elif col in ("latitude", "longitude") %}
+        <input type="number" step="any" name="{{ col }}" value="{{ val if val is not none else '' }}">
+
+      {% elif col == "location" %}
+        <div class="geo-row" x-data="geoLookup"
+             x-init="q = {{ (val or '') | tojson }}">
+          <input type="text" name="location"
+                 x-model="q"
+                 placeholder="City, region, country"
+                 @keydown.enter.prevent="run()">
+          <button type="button" class="secondary" @click="run()">
+            Look up ↻
+          </button>
+        </div>
+        <small class="geo-hint" :class="level ? 'geo-' + level : ''"
+               x-text="status"></small>
+
+      {% else %}
+        <input type="text" name="{{ col }}" value="{{ val or '' }}">
+      {% endif %}
+
+      {% if err %}<small class="field-error">{{ err }}</small>{% endif %}
+    </label>
+  {% endfor %}
+
+  {% if ct.has_tags %}
+    <label>
+      <span>tags (comma-separated)</span>
+      <input type="text" name="tags" value="{{ tags | join(', ') }}">
+    </label>
+  {% endif %}
+
+  <button type="submit">{{ "Create" if is_new else "Save" }}</button>
+</form>
+{% endblock %}

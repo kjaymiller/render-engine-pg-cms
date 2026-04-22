@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>pg-cms</title>
+  <style>
+    body { font: 13px system-ui; padding: 0.75rem; min-width: 280px; margin: 0; }
+    h1 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+    label { display: block; font-size: 0.8rem; color: #555; margin-top: 0.5rem; }
+    input[readonly] {
+      width: 100%; box-sizing: border-box; font: inherit;
+      padding: 0.3rem 0.4rem; border: 1px solid #ccc; border-radius: 4px;
+      background: #f7f7f7;
+    }
+    .row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+    button {
+      flex: 1; padding: 0.4rem; font: inherit; cursor: pointer;
+      background: #7aa2f7; color: #111; border: 0; border-radius: 4px;
+    }
+    button.secondary { background: #eee; color: #333; }
+    .target { font-size: 0.75rem; color: #777; word-break: break-all; margin-top: 0.5rem; }
+    .err { color: #b00; font-size: 0.8rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Capture to pg-cms</h1>
+  <label>URL<input id="url" readonly></label>
+  <label>Title<input id="title" readonly></label>
+  <div class="row">
+    <button id="go">Open in CMS →</button>
+    <button id="opts" class="secondary" type="button">Settings</button>
+  </div>
+  <div class="target" id="target"></div>
+  <div class="err" id="err"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
