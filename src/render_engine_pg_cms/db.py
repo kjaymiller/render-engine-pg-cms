@@ -86,6 +86,13 @@ def _tags_for(cur: psycopg.Cursor, ct: ContentType, record_id: int) -> list[str]
     return [r["name"] for r in cur.fetchall()]
 
 
+def list_all_tags(cfg: Config) -> list[str]:
+    """Return every distinct tag name across all content types, alphabetized."""
+    with _conn(cfg) as conn, conn.cursor() as cur:
+        cur.execute("SELECT name FROM tags ORDER BY name")
+        return [r["name"] for r in cur.fetchall()]
+
+
 def _now_fields(values: dict[str, Any], columns: list[str]) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     values = dict(values)

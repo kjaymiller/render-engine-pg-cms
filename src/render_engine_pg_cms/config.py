@@ -67,7 +67,18 @@ class Config:
     webmention_io_token: str = ""
     # URL template for building the public post URL from a record.
     # Placeholders: {base}, {type}, {slug}
-    webmention_url_template: str = "{base}/{type}/{slug}/"
+    # Default matches render-engine's default .html page suffix; override
+    # with WEBMENTION_URL_TEMPLATE if your site uses trailing-slash routes.
+    webmention_url_template: str = "{base}/{type}/{slug}.html"
+    # Azure Blob Storage (for drag-drop image uploads)
+    azure_storage_connection_string: str = ""
+    azure_storage_account: str = ""
+    azure_storage_key: str = ""
+    azure_storage_container: str = ""
+    azure_public_base_url: str = ""
+    # Local Ollama server for AI slug suggestions
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:3b"
 
 
 _TABLE_RE = re.compile(r"INSERT\s+INTO\s+(\w+)", re.IGNORECASE)
@@ -130,6 +141,15 @@ def load_config(pyproject_path: Path | None = None) -> Config:
         bluesky_pds=os.environ.get("BLUESKY_PDS", "https://bsky.social").rstrip("/"),
         webmention_io_token=os.environ.get("WEBMENTION_IO_TOKEN", ""),
         webmention_url_template=os.environ.get(
-            "WEBMENTION_URL_TEMPLATE", "{base}/{type}/{slug}/"
+            "WEBMENTION_URL_TEMPLATE", "{base}/{type}/{slug}.html"
         ),
+        azure_storage_connection_string=os.environ.get(
+            "AZURE_STORAGE_CONNECTION_STRING", ""
+        ),
+        azure_storage_account=os.environ.get("AZURE_STORAGE_ACCOUNT", ""),
+        azure_storage_key=os.environ.get("AZURE_STORAGE_KEY", ""),
+        azure_storage_container=os.environ.get("AZURE_STORAGE_CONTAINER", ""),
+        azure_public_base_url=os.environ.get("AZURE_PUBLIC_BASE_URL", "").rstrip("/"),
+        ollama_url=os.environ.get("OLLAMA_URL", "http://localhost:11434"),
+        ollama_model=os.environ.get("OLLAMA_MODEL", "llama3.2:3b"),
     )
