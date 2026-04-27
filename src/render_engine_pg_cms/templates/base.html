@@ -35,12 +35,32 @@
           </button>
         </template>
       </div>
-      <form method="post" action="/publish" class="publish">
-        <button type="submit" class="btn btn-ghost">
-          <span>Publish</span>
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+      <a href="/webmentions" class="wm-indicator" x-data="wmIndicator" x-init="start()"
+         :class="running ? 'is-running' : ''"
+         :title="running ? 'Webmention sync in progress…' : (finished_at ? ('Last sync: ' + finished_at) : 'Webmentions')">
+        <svg class="wm-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/>
+        </svg>
+        <span x-show="!running" x-text="changed > 0 ? ('wm · +' + changed) : 'wm'"></span>
+        <span x-show="running" x-text="total_expected ? ('syncing ' + processed + '/' + total_expected) : 'syncing…'"></span>
+      </a>
+      <form method="post" action="/publish" class="publish"
+            x-data="publishBtn" x-init="start()" @submit.prevent="dispatch()">
+        <button type="submit" class="btn btn-ghost"
+                :class="running ? 'is-publishing' : ''"
+                :disabled="running || !configured"
+                :title="titleText">
+          <span x-text="running ? 'Publishing…' : (lastLabel || 'Publish')"></span>
+          <svg class="publish-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"
+               x-show="!running">
             <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
                   d="M5 12h14M13 6l6 6-6 6"/>
+          </svg>
+          <svg class="publish-icon publish-spin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"
+               x-show="running">
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                  d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/>
           </svg>
         </button>
       </form>
@@ -70,6 +90,95 @@
       const t = localStorage.getItem("renderpg-theme") || "home";
       document.body && document.body.setAttribute("data-theme", t);
     })();
+    document.addEventListener("alpine:init", () => {
+      Alpine.data("wmIndicator", () => ({
+        running: false,
+        finished_at: null,
+        changed: 0,
+        processed: 0,
+        total_expected: 0,
+        _timer: null,
+        async poll() {
+          try {
+            const r = await fetch("/webmentions/status", { headers: { "accept": "application/json" } });
+            if (!r.ok) return;
+            const s = await r.json();
+            this.running = s.running;
+            this.finished_at = s.finished_at;
+            this.changed = s.changed || 0;
+            this.processed = s.processed || 0;
+            this.total_expected = s.total_expected || 0;
+            // Faster cadence while a sync is live.
+            const next = s.running ? 1500 : 5000;
+            clearInterval(this._timer);
+            this._timer = setInterval(() => this.poll(), next);
+          } catch (_) {}
+        },
+        start() { this.poll(); },
+      }));
+    });
+    document.addEventListener("alpine:init", () => {
+      Alpine.data("publishBtn", () => ({
+        configured: true,
+        running: false,
+        lastLabel: "",
+        titleText: "Publish site",
+        _timer: null,
+        async dispatch() {
+          if (this.running) return;
+          this.running = true;
+          this.lastLabel = "";
+          this.titleText = "Dispatching publish…";
+          try {
+            const r = await fetch("/publish", { method: "POST", headers: { "accept": "text/html" } });
+            if (!r.ok) {
+              this.running = false;
+              this.titleText = "Publish dispatch failed (" + r.status + ")";
+              return;
+            }
+          } catch (_) {
+            this.running = false;
+            this.titleText = "Publish dispatch failed";
+            return;
+          }
+          this._schedule(15000);
+        },
+        async poll() {
+          try {
+            const r = await fetch("/publish/status", { headers: { "accept": "application/json" } });
+            if (!r.ok) return this._schedule(15000);
+            const s = await r.json();
+            this.configured = s.configured !== false;
+            const wasRunning = this.running;
+            this.running = !!s.running;
+            if (s.run) {
+              const when = s.run.updated_at || s.run.created_at || "";
+              const conc = s.run.conclusion ? (" · " + s.run.conclusion) : "";
+              this.titleText = "Last run: " + (s.run.display_title || "publish") + conc + (when ? (" (" + when + ")") : "");
+              if (!this.running) {
+                this.lastLabel = s.run.conclusion === "success"
+                  ? "Published"
+                  : (s.run.conclusion ? ("Publish: " + s.run.conclusion) : "Publish");
+                if (wasRunning) {
+                  // Clear the "Published" pill after a moment so the button returns to rest.
+                  setTimeout(() => { this.lastLabel = ""; }, 6000);
+                }
+              }
+            } else if (!this.configured) {
+              this.titleText = "Set GITHUB_TOKEN and GITHUB_REPO to enable publishing";
+            }
+            this._schedule(15000);
+          } catch (_) {
+            this._schedule(15000);
+          }
+        },
+        _schedule(ms) {
+          clearTimeout(this._timer);
+          this._timer = setTimeout(() => this.poll(), ms);
+        },
+        start() { this.poll(); },
+      }));
+    });
   </script>
   <footer class="colophon">
     <span>set in Fraunces &amp; Source Serif</span>

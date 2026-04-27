@@ -1,14 +1,18 @@
 """FastAPI CMS for render-engine PostgreSQL content."""
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
 import re
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
 import psycopg
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -16,7 +20,7 @@ from markdown_it import MarkdownIt
 
 from . import db
 from .config import Config, ContentType, load_config
-from .github import GitHubError, trigger_publish
+from .github import GitHubError, latest_run as github_latest_run, trigger_publish
 from .bluesky import BlueskyError, post_status as post_to_bluesky_api
 from .mastodon import (
     MastodonError,
@@ -24,17 +28,269 @@ from .mastodon import (
     build_status_text,
     post_status,
 )
-from .webmention import WebmentionError, sync_record as sync_webmention_record
+from .webmention import (
+    WebmentionError,
+    build_target_url as build_webmention_target_url,
+    last_sync_time as webmention_last_sync_time,
+    list_targets as list_webmention_targets,
+    sync_all as sync_all_webmentions,
+    sync_record as sync_webmention_record,
+)
+from .azure_blob import AzureUploadError, upload_bytes as upload_to_azure
+from .azure_blob import _slugify as _slugify_loose
+from .image_optimize import optimize as optimize_image
+from .ollama import (
+    OllamaError,
+    suggest_slug as ollama_suggest_slug,
+    suggest_tags as ollama_suggest_tags,
+)
+
+log = logging.getLogger("render_engine_pg_cms")
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).parent
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+
+def _inject_content_types(request: Request) -> dict:
+    return {"content_types": cfg().content_types}
+
+
+templates = Jinja2Templates(
+    directory=BASE_DIR / "templates",
+    context_processors=[_inject_content_types],
+)
 
 _md = MarkdownIt("commonmark", {"breaks": True, "linkify": True})
 templates.env.filters["md"] = lambda s: _md.render(s or "")
 
-app = FastAPI(title="render-engine-pg-cms")
+WEBMENTION_SYNC_INTERVAL = int(os.environ.get("WEBMENTION_SYNC_INTERVAL", "21600"))
+# Auto-loop only touches posts within this many days. Old posts rarely pick
+# up new mentions; the manual "Sync now" button still hits every record.
+# Set to 0 to disable the filter and let the loop sync everything.
+WEBMENTION_AUTO_MAX_AGE_DAYS = int(
+    os.environ.get("WEBMENTION_AUTO_MAX_AGE_DAYS", "60")
+)
+
+# Trailing-edge debounce on auto-publish after a record create/update.
+# Rapid-fire saves within this window collapse into a single workflow run.
+AUTOPUBLISH_DEBOUNCE_SECONDS = float(
+    os.environ.get("AUTOPUBLISH_DEBOUNCE_SECONDS", "60")
+)
+AUTOPUBLISH_ENABLED = os.environ.get("AUTOPUBLISH", "1") not in ("0", "false", "no")
+_pending_publish_task: "asyncio.Task | None" = None
+
+# Timestamp (UTC, ISO) of the last publish dispatch from this process.
+# Lets the status endpoint report "running" during the gap between dispatch
+# and GitHub surfacing the new run in its listing.
+_last_publish_dispatched_at: str | None = None
+
+
+def _record_is_live(record: dict) -> bool:
+    """A record is "live" (worth publishing) when its `date` is in the past.
+
+    Records without a `date` column are treated as live — that covers types
+    like 'conferences' or anything else the user manages through the CMS
+    where temporal gating doesn't apply.
+    """
+    d = record.get("date")
+    if d is None:
+        return True
+    try:
+        # Compare as naive when the value is naive, tz-aware otherwise.
+        if hasattr(d, "tzinfo") and d.tzinfo is not None:
+            from datetime import timezone as _tz
+            return d <= datetime.now(_tz.utc)
+        return d <= datetime.utcnow()
+    except TypeError:
+        # Unrecognized date shape — don't block autopublish.
+        return True
+
+
+async def _dispatch_autopublish() -> None:
+    """Wait out the debounce window, then fire the publish workflow."""
+    try:
+        await asyncio.sleep(AUTOPUBLISH_DEBOUNCE_SECONDS)
+    except asyncio.CancelledError:
+        return
+    try:
+        await asyncio.to_thread(trigger_publish, cfg())
+        _mark_publish_dispatched()
+        log.info("auto-publish dispatched after save(s)")
+    except GitHubError as exc:
+        log.warning("auto-publish failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("auto-publish raised: %s", exc)
+
+
+def schedule_autopublish(record: dict) -> None:
+    """Kick (or reset) the trailing-debounce publish timer.
+
+    Multiple saves in quick succession collapse into one workflow run at the
+    end of the last save's 60-second cooldown. No-op for drafts (future
+    `date`), for content types without a date column it runs freely, and
+    when GitHub isn't configured.
+    """
+    global _pending_publish_task
+    if not AUTOPUBLISH_ENABLED:
+        return
+    if not (cfg().github_token and cfg().github_repo):
+        return
+    if not _record_is_live(record):
+        return
+    # Cancel any outstanding timer — later saves push the publish further.
+    if _pending_publish_task and not _pending_publish_task.done():
+        _pending_publish_task.cancel()
+    _pending_publish_task = asyncio.create_task(_dispatch_autopublish())
+
+# In-memory status for the UI. Not persisted across restarts — acceptable for
+# an admin tool; on restart the next auto-run repopulates it.
+_sync_state: dict = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "trigger": None,      # "auto" | "manual"
+    "total_expected": 0,  # set upfront once we know how many rows to hit
+    "processed": 0,       # increments per record as the sync progresses
+    "results": [],        # appended as each record finishes
+    "last_update": None,  # ISO ts; bumped on every per-record callback
+    "error": None,
+}
+_sync_lock = asyncio.Lock()
+
+
+def _now_iso() -> str:
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _run_sync_blocking(trigger: str) -> None:
+    """Blocking sync used by both the auto-loop and manual triggers.
+
+    Updates _sync_state in place as each record finishes so the UI can show
+    live per-mention progress. Safe to call from a worker thread —
+    the dict mutation here is fine for single-writer admin use.
+    """
+    _sync_state.update(
+        running=True,
+        started_at=_now_iso(),
+        finished_at=None,
+        trigger=trigger,
+        error=None,
+        processed=0,
+        total_expected=0,
+        results=[],
+        last_update=_now_iso(),
+    )
+    try:
+        def on_start(total: int) -> None:
+            _sync_state["total_expected"] = total
+            _sync_state["last_update"] = _now_iso()
+
+        def on_record(entry: dict) -> None:
+            _sync_state["results"].append(entry)
+            _sync_state["processed"] = len(_sync_state["results"])
+            _sync_state["last_update"] = _now_iso()
+
+        # Auto-runs restrict to recent posts to avoid rate-limiting on every
+        # cycle; manual runs (triggered from the UI) hit every record.
+        max_age = (
+            WEBMENTION_AUTO_MAX_AGE_DAYS or None
+            if trigger == "auto" else None
+        )
+        sync_all_webmentions(
+            cfg(), max_age_days=max_age,
+            on_start=on_start, on_record=on_record,
+        )
+        ok = sum(1 for r in _sync_state["results"] if r["error"] is None)
+        log.info(
+            "webmention sync (%s): %d/%d refreshed",
+            trigger, ok, len(_sync_state["results"]),
+        )
+    except Exception as exc:
+        _sync_state["error"] = str(exc)
+        log.warning("webmention sync (%s) failed: %s", trigger, exc)
+    finally:
+        _sync_state["running"] = False
+        _sync_state["finished_at"] = _now_iso()
+
+
+async def _sync_now(trigger: str) -> bool:
+    """Run one sync cycle if none is in flight. Returns True if it ran."""
+    if _sync_lock.locked():
+        return False
+    async with _sync_lock:
+        await asyncio.to_thread(_run_sync_blocking, trigger)
+    return True
+
+
+async def _webmention_sync_loop() -> None:
+    """Periodically refresh webmention counts for every syndicated record.
+
+    Interval is controlled by WEBMENTION_SYNC_INTERVAL (seconds; 0 disables).
+
+    On startup, looks at the latest `webmentions_synced_at` in the DB so a
+    restart after a recent sync doesn't stampede webmention.io. We only wait
+    out the remainder of the interval (not a full cycle) — so the first sync
+    happens `max(0, interval - elapsed_since_last)` seconds after startup.
+    """
+    # Compute startup delay from on-disk state.
+    initial_delay = 0.0
+    try:
+        last = await asyncio.to_thread(webmention_last_sync_time, cfg())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("couldn't determine last sync time: %s", exc)
+        last = None
+    if last is not None:
+        from datetime import timezone as _tz
+        now = datetime.now(_tz.utc) if last.tzinfo else datetime.utcnow()
+        try:
+            elapsed = (now - last).total_seconds()
+        except TypeError:
+            elapsed = float(WEBMENTION_SYNC_INTERVAL)  # mismatched tz — run now
+        initial_delay = max(0.0, WEBMENTION_SYNC_INTERVAL - elapsed)
+        if initial_delay > 0:
+            log.info(
+                "deferring first webmention sync: last run %ds ago, waiting %ds",
+                int(elapsed), int(initial_delay),
+            )
+
+    if initial_delay > 0:
+        try:
+            await asyncio.sleep(initial_delay)
+        except asyncio.CancelledError:
+            raise
+
+    while True:
+        try:
+            await _sync_now("auto")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("webmention sync failed: %s", exc)
+        await asyncio.sleep(WEBMENTION_SYNC_INTERVAL)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task: asyncio.Task | None = None
+    if WEBMENTION_SYNC_INTERVAL > 0 and cfg().webmention_io_token:
+        task = asyncio.create_task(_webmention_sync_loop())
+        log.info(
+            "webmention background sync started (every %ds)",
+            WEBMENTION_SYNC_INTERVAL,
+        )
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
+app = FastAPI(title="render-engine-pg-cms", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 SKIP_COLUMNS = {"id", "created_at", "updated_at"}
@@ -79,6 +335,22 @@ def _render_edit(
         and can_syndicate
         and bool(cfg().bluesky_handle and cfg().bluesky_app_password)
     )
+    social_draft = ""
+    social_image_url: str | None = None
+    social_image_alt = ""
+    canonical_url = ""
+    if (has_mastodon or has_bluesky) and record:
+        social_draft = build_status_text(ct.name, record, tags)
+        social_image_url, social_image_alt = _pick_image(ct.name, record)
+        # Build the live post URL so the social modal can offer to append it.
+        # build_target_url raises if site_base_url/slug is missing; falling
+        # back to empty lets the UI hide the checkbox.
+        try:
+            canonical_url = build_webmention_target_url(
+                cfg(), ct.name, record.get("slug") or "",
+            )
+        except Exception:  # noqa: BLE001
+            canonical_url = ""
     return templates.TemplateResponse(
         request,
         "edit.html",
@@ -93,6 +365,12 @@ def _render_edit(
             "flash_level": flash_level,
             "has_mastodon": has_mastodon,
             "has_bluesky": has_bluesky,
+            "social_draft": social_draft,
+            "social_image_url": social_image_url,
+            "social_image_alt": social_image_alt,
+            "social_canonical_url": canonical_url,
+            "masto_limit": 500,
+            "bsky_limit": 300,
         },
         status_code=status_code,
     )
@@ -173,6 +451,149 @@ def geocode(q: str):
     }
 
 
+# Cap upload size to protect against runaway drops. 50 MiB covers ProRAW /
+# 5K-screenshot territory with headroom. Note: the server downscales to
+# MAX_EDGE_PX (2200) and re-encodes, so the *stored* blob is almost always
+# <500 KB regardless of what gets uploaded.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+@app.post("/api/upload")
+async def upload_image(file: UploadFile = File(...)):
+    """Accept a single image file and persist it to Azure Blob Storage.
+
+    Returns {url, filename, content_type, size}. The caller places the
+    returned `url` wherever it wants (image_url input, markdown textarea).
+    """
+    if not cfg().azure_storage_container and not cfg().azure_storage_connection_string:
+        return JSONResponse(
+            {"error": "Azure storage is not configured on this server."},
+            status_code=503,
+        )
+    content_type = (file.content_type or "").lower()
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return JSONResponse(
+            {"error": f"File too large ({len(raw)} bytes). Max {MAX_UPLOAD_BYTES}."},
+            status_code=413,
+        )
+
+    # Downscale + re-encode off the event loop so we don't block other requests
+    # while Pillow churns on a 20MP photo.
+    try:
+        data, new_content_type = await asyncio.to_thread(
+            optimize_image, raw, content_type
+        )
+    except Exception as exc:  # noqa: BLE001 — optimization is best-effort
+        log.warning("image optimize failed (%s); uploading original", exc)
+        data, new_content_type = raw, content_type
+
+    try:
+        url = await asyncio.to_thread(
+            upload_to_azure, cfg(), data, new_content_type, file.filename,
+        )
+    except AzureUploadError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("azure upload failed")
+        return JSONResponse({"error": f"Upload failed: {exc}"}, status_code=502)
+
+    return {
+        "url": url,
+        "filename": file.filename,
+        "content_type": new_content_type,
+        "original_content_type": content_type,
+        "size": len(data),
+        "original_size": len(raw),
+        "saved_bytes": max(0, len(raw) - len(data)),
+    }
+
+
+@app.post("/api/ai/slug")
+async def ai_suggest_slug(text: str = Form(...)):
+    """Ask the local Ollama server for a URL slug for `text`.
+
+    Returns {slug, source}. `source` is "ai" when the model answered
+    successfully, "fallback" when we fell back to rule-based slugify —
+    that way the UI can tell the user why they got what they got.
+    """
+    clean_input = (text or "").strip()
+    if not clean_input:
+        return JSONResponse({"error": "empty input"}, status_code=400)
+    try:
+        raw = await asyncio.to_thread(ollama_suggest_slug, cfg(), clean_input)
+    except OllamaError as exc:
+        log.info("ollama slug failed (%s); using fallback", exc)
+        return {"slug": _slugify_loose(clean_input)[:80], "source": "fallback", "error": str(exc)}
+    slug = _slugify_loose(raw)[:80]
+    # Belt-and-braces: if the model returned something that normalized to
+    # empty (e.g. just punctuation), fall back rather than return "".
+    if not slug:
+        return {"slug": _slugify_loose(clean_input)[:80], "source": "fallback",
+                "error": "model returned unusable output"}
+    return {"slug": slug, "source": "ai"}
+
+
+def _normalize_tag(raw: str) -> str:
+    """Lowercase, trim, collapse whitespace to single hyphens. Keeps existing
+    multi-word tags looking consistent with the "hyphen-separated" style."""
+    s = (raw or "").strip().lower()
+    # Drop quotes, leading/trailing punctuation noise the model might emit.
+    s = s.strip('"').strip("'").strip(".")
+    # Collapse runs of whitespace/underscores to a single hyphen, keep
+    # existing hyphens and alphanumerics.
+    s = re.sub(r"[\s_]+", "-", s)
+    s = re.sub(r"-+", "-", s)
+    return s.strip("-")
+
+
+@app.post("/api/ai/tags")
+async def ai_suggest_tags(text: str = Form(...)):
+    """Ask Ollama for tag suggestions, seeded with the existing tag library.
+
+    Returns {suggestions: [{tag, known}], source}. `known=true` means the tag
+    already exists in the `tags` table — the UI can style those differently.
+    """
+    clean_input = (text or "").strip()
+    if not clean_input:
+        return JSONResponse({"error": "empty input"}, status_code=400)
+
+    try:
+        existing = await asyncio.to_thread(db.list_all_tags, cfg())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("couldn't load tag library (%s); proceeding without", exc)
+        existing = []
+
+    try:
+        raw_suggestions = await asyncio.to_thread(
+            ollama_suggest_tags, cfg(), clean_input, existing
+        )
+    except OllamaError as exc:
+        log.info("ollama tags failed: %s", exc)
+        return JSONResponse(
+            {"error": str(exc), "source": "error", "suggestions": []},
+            status_code=503,
+        )
+
+    known = {t.lower() for t in existing}
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in raw_suggestions:
+        tag = _normalize_tag(item.get("tag", ""))
+        if not tag or tag in seen:
+            continue
+        # Guard against the model returning one-character junk or entries
+        # that are obviously instructions, not tags.
+        if len(tag) > 40 or len(tag) < 2:
+            continue
+        seen.add(tag)
+        # Trust set membership over the model's self-report — the model
+        # sometimes flags a near-miss ("web-dev" vs existing "webdev") as
+        # reused. `known` is the ground truth for UI grouping.
+        out.append({"tag": tag, "known": tag in known})
+    return {"suggestions": out, "source": "ai"}
+
+
 @app.get("/c/{name}", response_class=HTMLResponse)
 def list_view(request: Request, name: str, msg: str | None = None, level: str = "ok"):
     ct = _ct(name)
@@ -237,6 +658,7 @@ async def create(request: Request, name: str):
             request, ct, record=values, tags=tags, is_new=True,
             form_error=_db_error_message(exc), status_code=400,
         )
+    schedule_autopublish(values)
     return RedirectResponse(
         f"/c/{name}?msg=Created&level=ok", status_code=303
     )
@@ -282,6 +704,7 @@ async def update(request: Request, name: str, record_id: int):
             request, ct, record=values_with_id, tags=tags, is_new=False,
             form_error=_db_error_message(exc), status_code=400,
         )
+    schedule_autopublish(values)
     return RedirectResponse(
         f"/c/{name}?msg=Saved&level=ok", status_code=303
     )
@@ -378,53 +801,62 @@ def post_to_bluesky(name: str, record_id: int):
 
 
 @app.post("/c/{name}/{record_id}/syndicate")
-def post_to_both(name: str, record_id: int):
+def publish_social(
+    name: str,
+    record_id: int,
+    text: str = Form(""),
+    post_mastodon: str = Form(""),
+    post_bluesky: str = Form(""),
+):
     ct = _ct(name)
     cols = _columns(cfg(), ct)
-    if "mastodon_url" not in cols or "bluesky_url" not in cols:
-        return _flash_redirect(
-            name,
-            "This content type is missing mastodon_url or bluesky_url.",
-            "err",
-            record_id=record_id,
-        )
     record = db.get_record(cfg(), ct, record_id)
     if record is None:
         raise HTTPException(404)
-    tags = record.get("tags", []) if ct.has_tags else []
-    text = build_status_text(ct.name, record, tags)
-    image_url, alt = _pick_image(ct.name, record)
-    if not text.strip() and not image_url:
+
+    want_mastodon = bool(post_mastodon) and "mastodon_url" in cols
+    want_bluesky = bool(post_bluesky) and "bluesky_url" in cols
+    if not (want_mastodon or want_bluesky):
         return _flash_redirect(
-            name, "Nothing to post — record has no content or image.", "err",
+            name, "Pick at least one network to publish to.", "err",
             record_id=record_id,
+        )
+
+    text = (text or "").strip()
+    image_url, alt = _pick_image(ct.name, record)
+    if not text and not image_url:
+        return _flash_redirect(
+            name, "Nothing to post — draft is empty and no image attached.",
+            "err", record_id=record_id,
         )
 
     results: list[str] = []
     errors: list[str] = []
 
-    if record.get("mastodon_url"):
-        results.append(f"Mastodon already posted: {record['mastodon_url']}")
-    else:
-        try:
-            m = post_status(cfg(), text, image_url=image_url, image_alt=alt)
-            db.set_mastodon_url(cfg(), ct, record_id, m["url"])
-            results.append(f"Mastodon: {m['url']}")
-        except MastodonError as exc:
-            errors.append(f"Mastodon: {exc}")
+    if want_mastodon:
+        if record.get("mastodon_url"):
+            results.append(f"Mastodon already posted: {record['mastodon_url']}")
+        else:
+            try:
+                m = post_status(cfg(), text, image_url=image_url, image_alt=alt)
+                db.set_mastodon_url(cfg(), ct, record_id, m["url"])
+                results.append(f"Mastodon: {m['url']}")
+            except MastodonError as exc:
+                errors.append(f"Mastodon: {exc}")
 
-    if record.get("bluesky_url"):
-        results.append(f"Bluesky already posted: {record['bluesky_url']}")
-    else:
-        try:
-            b = post_to_bluesky_api(
-                cfg(), text, image_url=image_url, image_alt=alt,
-            )
-            if b.get("url"):
-                db.set_bluesky_url(cfg(), ct, record_id, b["url"])
-            results.append(f"Bluesky: {b.get('url', b.get('uri'))}")
-        except BlueskyError as exc:
-            errors.append(f"Bluesky: {exc}")
+    if want_bluesky:
+        if record.get("bluesky_url"):
+            results.append(f"Bluesky already posted: {record['bluesky_url']}")
+        else:
+            try:
+                b = post_to_bluesky_api(
+                    cfg(), text, image_url=image_url, image_alt=alt,
+                )
+                if b.get("url"):
+                    db.set_bluesky_url(cfg(), ct, record_id, b["url"])
+                results.append(f"Bluesky: {b.get('url', b.get('uri'))}")
+            except BlueskyError as exc:
+                errors.append(f"Bluesky: {exc}")
 
     msg = " · ".join(results + errors) or "Nothing happened."
     level = "err" if errors and not results else "ok"
@@ -438,11 +870,15 @@ def sync_webmentions(name: str, record_id: int):
     if record is None:
         raise HTTPException(404)
     try:
-        count, target = sync_webmention_record(cfg(), ct, record)
+        count, target, types = sync_webmention_record(cfg(), ct, record)
     except WebmentionError as exc:
         return _flash_redirect(name, str(exc), "err", record_id=record_id)
+    breakdown = ", ".join(f"{k}:{v}" for k, v in sorted(types.items())) or "none"
     return _flash_redirect(
-        name, f"Webmentions: {count} ({target})", "ok", record_id=record_id,
+        name,
+        f"Webmentions: {count} ({breakdown}) · {target}",
+        "ok",
+        record_id=record_id,
     )
 
 
@@ -467,10 +903,98 @@ def _flash_redirect(
     return RedirectResponse(f"{target}?{params}", status_code=303)
 
 
+@app.post("/webmentions/sync")
+async def trigger_webmention_sync(request: Request):
+    if not cfg().webmention_io_token:
+        if request.headers.get("accept", "").startswith("application/json"):
+            return JSONResponse({"ok": False, "error": "WEBMENTION_IO_TOKEN not set."}, status_code=400)
+        return _flash_redirect("", "WEBMENTION_IO_TOKEN not set.", "err")
+    if _sync_state["running"]:
+        started = False
+    else:
+        asyncio.create_task(_sync_now("manual"))
+        started = True
+    if request.headers.get("accept", "").startswith("application/json"):
+        return JSONResponse({"ok": True, "started": started, "running": True})
+    referer = request.headers.get("referer") or "/webmentions"
+    msg = "Webmention sync started." if started else "Sync already in progress."
+    params = urlencode({"msg": msg, "level": "ok"})
+    sep = "&" if "?" in referer else "?"
+    return RedirectResponse(f"{referer}{sep}{params}", status_code=303)
+
+
+@app.get("/webmentions/targets")
+def webmention_targets():
+    """List every syndicated record with the target URL we send to
+    webmention.io. Use this to verify the URLs match your real post URLs —
+    if they don't, bridgy's relayed mentions are being filed under the
+    wrong key and your counts will stay at 0.
+    """
+    return JSONResponse({"targets": list_webmention_targets(cfg())})
+
+
+@app.get("/webmentions/status")
+def webmention_status(since: int = 0):
+    """Live status. Pass ?since=N to only return results after index N —
+    lets the UI stream per-record updates without re-sending the whole log.
+    """
+    s = _sync_state
+    results = s["results"]
+    summary = {
+        "running": s["running"],
+        "started_at": s["started_at"],
+        "finished_at": s["finished_at"],
+        "last_update": s["last_update"],
+        "trigger": s["trigger"],
+        "error": s["error"],
+        "total_expected": s["total_expected"],
+        "processed": s["processed"],
+        "total": len(results),
+        "ok": sum(1 for r in results if r["error"] is None),
+        "failed": sum(1 for r in results if r["error"] is not None),
+        "changed": sum(
+            1 for r in results
+            if r["error"] is None and r["count"] != r["prev"]
+        ),
+        "new": results[since:] if since < len(results) else [],
+    }
+    return JSONResponse(summary)
+
+
+@app.get("/webmentions", response_class=HTMLResponse)
+def webmention_log(request: Request):
+    s = _sync_state
+    results = s["results"]
+    # Sort: changes first, then errors, then unchanged.
+    def rank(r):
+        if r["error"]:
+            return 1
+        if r["count"] != r["prev"]:
+            return 0
+        return 2
+    sorted_results = sorted(results, key=rank)
+    return templates.TemplateResponse(
+        request,
+        "webmentions.html",
+        {
+            "state": s,
+            "results": sorted_results,
+            "interval": WEBMENTION_SYNC_INTERVAL,
+        },
+    )
+
+
+def _mark_publish_dispatched() -> None:
+    from datetime import timezone as _tz
+    global _last_publish_dispatched_at
+    _last_publish_dispatched_at = datetime.now(_tz.utc).isoformat()
+
+
 @app.post("/publish", response_class=HTMLResponse)
 def publish(request: Request):
     try:
         trigger_publish(cfg())
+        _mark_publish_dispatched()
         message = f"Dispatched {cfg().github_workflow} on {cfg().github_repo}@{cfg().github_ref}."
         ok = True
     except GitHubError as exc:
@@ -480,6 +1004,41 @@ def publish(request: Request):
         request,
         "publish_result.html",
         {"message": message, "ok": ok},
+    )
+
+
+@app.get("/publish/status", response_class=JSONResponse)
+def publish_status(request: Request):
+    """Return the current state of the most recent publish workflow run.
+
+    `running` is true when the latest run is queued/in_progress, OR when we
+    just dispatched from this process and GitHub hasn't yet surfaced a run
+    newer than that dispatch.
+    """
+    try:
+        run = github_latest_run(cfg())
+    except GitHubError as exc:
+        return JSONResponse(
+            {"configured": False, "running": False, "error": str(exc)},
+            status_code=200,
+        )
+    configured = bool(cfg().github_token and cfg().github_repo)
+    dispatched_at = _last_publish_dispatched_at
+    run_status = run.get("status") if run else None
+    running = run_status in ("queued", "in_progress")
+    # Bridge the gap between our dispatch and the new run showing up.
+    if dispatched_at and run:
+        if (run.get("created_at") or "") < dispatched_at and not running:
+            running = True
+    elif dispatched_at and not run:
+        running = True
+    return JSONResponse(
+        {
+            "configured": configured,
+            "running": running,
+            "dispatched_at": dispatched_at,
+            "run": run,
+        }
     )
 
 

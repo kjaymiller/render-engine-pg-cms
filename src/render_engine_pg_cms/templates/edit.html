@@ -31,38 +31,164 @@
 {% if (has_mastodon or has_bluesky) and not is_new %}
   <section class="syndication-box">
     {% if has_mastodon %}
-      {% if record.get("mastodon_url") %}
+      <div class="syndication-row">
         <span class="muted">Mastodon:</span>
-        <a href="{{ record.mastodon_url }}" target="_blank" rel="noopener">
-          {{ record.mastodon_url }}
-        </a>
-      {% else %}
-        <form method="post" action="/c/{{ ct.name }}/{{ record.id }}/mastodon"
-              onsubmit="return confirm('Post this {{ ct.name }} to Mastodon?');">
-          <button type="submit">Post to Mastodon</button>
-        </form>
-      {% endif %}
+        {% if record.get("mastodon_url") %}
+          <a href="{{ record.mastodon_url }}" target="_blank" rel="noopener">
+            {{ record.mastodon_url }}
+          </a>
+        {% else %}
+          <span class="muted">not posted</span>
+        {% endif %}
+      </div>
     {% endif %}
     {% if has_bluesky %}
-      {% if record.get("bluesky_url") %}
+      <div class="syndication-row">
         <span class="muted">Bluesky:</span>
-        <a href="{{ record.bluesky_url }}" target="_blank" rel="noopener">
-          {{ record.bluesky_url }}
-        </a>
-      {% else %}
-        <form method="post" action="/c/{{ ct.name }}/{{ record.id }}/bluesky"
-              onsubmit="return confirm('Post this {{ ct.name }} to Bluesky?');">
-          <button type="submit">Post to Bluesky</button>
-        </form>
-      {% endif %}
+        {% if record.get("bluesky_url") %}
+          <a href="{{ record.bluesky_url }}" target="_blank" rel="noopener">
+            {{ record.bluesky_url }}
+          </a>
+        {% else %}
+          <span class="muted">not posted</span>
+        {% endif %}
+      </div>
     {% endif %}
-    {% if has_mastodon and has_bluesky
-          and not record.get("mastodon_url")
-          and not record.get("bluesky_url") %}
-      <form method="post" action="/c/{{ ct.name }}/{{ record.id }}/syndicate"
-            onsubmit="return confirm('Post this {{ ct.name }} to Mastodon AND Bluesky?');">
-        <button type="submit">Post to Both</button>
+    {% set can_post_masto = has_mastodon and not record.get("mastodon_url") %}
+    {% set can_post_bsky = has_bluesky and not record.get("bluesky_url") %}
+    {% if can_post_masto or can_post_bsky %}
+      <div class="syndication-row"
+           x-data='publishSocial({
+             text: {{ social_draft | tojson }},
+             mastoLimit: {{ masto_limit }},
+             bskyLimit: {{ bsky_limit }},
+             canMasto: {{ can_post_masto | tojson }},
+             canBsky: {{ can_post_bsky | tojson }},
+             imageUrl: {{ (social_image_url or "") | tojson }},
+             imageAlt: {{ (social_image_alt or "") | tojson }},
+             canonicalUrl: {{ (social_canonical_url or "") | tojson }}
+           })'>
+        <button type="button" class="publish-social-btn" @click="open = true">
+          Publish to social
+        </button>
+
+        <template x-teleport="body">
+        <div class="modal-backdrop" x-show="open" x-transition.opacity
+             @click.self="open = false" @keydown.escape.window="open = false"
+             style="display:none">
+          <div class="modal-card" role="dialog" aria-modal="true"
+               aria-labelledby="publish-social-title">
+            <header class="modal-head">
+              <h2 id="publish-social-title">Publish to social</h2>
+              <button type="button" class="modal-close" @click="open = false"
+                      aria-label="Close">×</button>
+            </header>
+
+            <form method="post"
+                  action="/c/{{ ct.name }}/{{ record.id }}/syndicate"
+                  @submit="onSubmit($event)">
+              <div class="social-targets">
+                <label :class="canMasto ? '' : 'is-disabled'">
+                  <input type="checkbox" name="post_mastodon" value="1"
+                         x-model="toMasto" :disabled="!canMasto">
+                  <span class="target-dot target-masto"></span>
+                  Mastodon
+                  <small class="muted"
+                         x-text="canMasto ? ('max ' + mastoLimit) : 'already posted'"></small>
+                </label>
+                <label :class="canBsky ? '' : 'is-disabled'">
+                  <input type="checkbox" name="post_bluesky" value="1"
+                         x-model="toBsky" :disabled="!canBsky">
+                  <span class="target-dot target-bsky"></span>
+                  Bluesky
+                  <small class="muted"
+                         x-text="canBsky ? ('max ' + bskyLimit) : 'already posted'"></small>
+                </label>
+              </div>
+
+              <div class="social-editor">
+                <div class="social-highlight" x-ref="highlight" aria-hidden="true"
+                     x-html="highlightedHtml"></div>
+                <textarea name="text" x-model="text" x-ref="textarea"
+                          spellcheck="true"
+                          @input="sync()" @scroll="syncScroll()"
+                          rows="8"></textarea>
+              </div>
+
+              <div class="social-meta">
+                <span class="counter-pill"
+                      :class="effectiveLen > mastoLimit ? 'over-masto' : ''">
+                  Masto: <strong x-text="effectiveLen"></strong>/<span x-text="mastoLimit"></span>
+                </span>
+                <span class="counter-pill"
+                      :class="effectiveLen > bskyLimit ? 'over-bsky' : ''">
+                  Bsky: <strong x-text="effectiveLen"></strong>/<span x-text="bskyLimit"></span>
+                </span>
+                <template x-if="imageUrl">
+                  <span class="image-chip" :title="imageAlt || 'attached image'">
+                    <img :src="imageUrl" alt="">
+                    <span class="muted">image attached</span>
+                  </span>
+                </template>
+              </div>
+
+              <template x-if="canonicalUrl">
+                <label class="include-url" :title="canonicalUrl">
+                  <input type="checkbox" x-model="includeUrl"
+                         :disabled="wouldOverflowWithUrl && !includeUrl">
+                  <span>Append post URL</span>
+                  <small class="muted" x-text="canonicalUrl"></small>
+                  <small class="warn" x-show="!includeUrl && !wouldOverflowWithUrl">
+                    Breaks webmention attribution: bridgy relays likes/replies/reposts by scanning the post body for URLs on your domain. With no canonical URL in the body, bridgy shows "No webmention targets" and activity is stranded on the silo.
+                  </small>
+                  <small class="warn" x-show="wouldOverflowWithUrl">
+                    Appending the URL would push this over the character limit
+                    (<span x-text="projectedLen"></span>/<span x-text="Math.min(mastoLimit, bskyLimit)"></span>).
+                    Trim the body first, then re-enable.
+                  </small>
+                </label>
+              </template>
+
+              <footer class="modal-foot">
+                <button type="button" class="secondary" @click="open = false">
+                  Cancel
+                </button>
+                <button type="submit"
+                        :disabled="!(toMasto || toBsky)">
+                  <span x-text="submitLabel"></span>
+                </button>
+              </footer>
+            </form>
+          </div>
+        </div>
+        </template>
+      </div>
+    {% endif %}
+    {% if record.get("slug") and (record.get("mastodon_url") or record.get("bluesky_url")) %}
+      {% set wm_types = record.get("webmentions_types") or {} %}
+      <div class="syndication-row">
+      <form method="post"
+            action="/c/{{ ct.name }}/{{ record.id }}/webmentions/sync"
+            class="wm-one">
+        <span class="muted">Webmentions:</span>
+        <strong>{{ record.get("webmentions_count") or 0 }}</strong>
+        {% if wm_types %}
+          <span class="wm-types">
+            {% if wm_types.get("like") %}<span class="wm-type wm-type-like" title="likes">♥ {{ wm_types["like"] }}</span>{% endif %}
+            {% if wm_types.get("repost") %}<span class="wm-type wm-type-repost" title="reposts">🔁 {{ wm_types["repost"] }}</span>{% endif %}
+            {% if wm_types.get("in-reply-to") %}<span class="wm-type wm-type-reply" title="replies">💬 {{ wm_types["in-reply-to"] }}</span>{% endif %}
+            {% if wm_types.get("mention-of") %}<span class="wm-type" title="mentions">↗ {{ wm_types["mention-of"] }}</span>{% endif %}
+            {% if wm_types.get("bookmark-of") %}<span class="wm-type" title="bookmarks">🔖 {{ wm_types["bookmark-of"] }}</span>{% endif %}
+          </span>
+        {% endif %}
+        {% if record.get("webmentions_synced_at") %}
+          <small class="muted">
+            last synced {{ record.webmentions_synced_at.strftime("%Y-%m-%d %H:%M") }}
+          </small>
+        {% endif %}
+        <button type="submit" class="secondary">Refresh count</button>
       </form>
+      </div>
     {% endif %}
   </section>
 {% endif %}
@@ -111,13 +237,380 @@
       },
     }));
 
+    // Tag-suggestion widget. Maintains a comma-separated string value
+    // compatible with the existing form handler, plus a chip list the user
+    // toggles to add/remove individual tags from the current selection.
+    Alpine.data("tagSuggest", () => ({
+      value: "",
+      suggestions: [],
+      busy: false,
+      msg: "",
+      level: "",
+      get tags() {
+        return this.value.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+      },
+      isActive(tag) { return this.tags.includes(tag.toLowerCase()); },
+      get knownSuggestions() { return this.suggestions.filter((s) => s.known); },
+      get newSuggestions() { return this.suggestions.filter((s) => !s.known); },
+      setTags(list) {
+        // Stable-dedupe preserving order of first occurrence.
+        const seen = new Set();
+        const out = [];
+        for (const t of list) {
+          const k = t.toLowerCase();
+          if (!k || seen.has(k)) continue;
+          seen.add(k);
+          out.push(k);
+        }
+        this.value = out.join(", ");
+      },
+      toggle(tag) {
+        const lower = tag.toLowerCase();
+        const current = this.tags;
+        if (current.includes(lower)) {
+          this.setTags(current.filter((t) => t !== lower));
+        } else {
+          this.setTags([...current, lower]);
+        }
+      },
+      async suggest() {
+        const form = this.$root.closest("form") || this.$root;
+        const pick = (sel) => {
+          const el = form.querySelector(sel);
+          return el && el.value ? el.value.trim() : "";
+        };
+        const title = pick('[name="title"]') || pick('[name="name"]');
+        const body = pick('[name="content"]') || pick('[name="description"]');
+        const src = [title, body].filter(Boolean).join("\n\n");
+        if (!src) {
+          this.msg = "Add a title or content first.";
+          this.level = "err";
+          return;
+        }
+        this.busy = true;
+        this.msg = "";
+        this.level = "";
+        try {
+          const fd = new FormData();
+          fd.append("text", src);
+          const r = await fetch("/api/ai/tags", { method: "POST", body: fd });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            this.msg = data.error || `Request failed (${r.status})`;
+            this.level = "err";
+            this.suggestions = [];
+            return;
+          }
+          this.suggestions = data.suggestions || [];
+          const reused = this.suggestions.filter((s) => s.known).length;
+          const fresh = this.suggestions.length - reused;
+          this.msg = this.suggestions.length
+            ? `Got ${this.suggestions.length} suggestions (${reused} existing, ${fresh} new). Click to add/remove.`
+            : "No suggestions — try adding more content.";
+          this.level = this.suggestions.length ? "ok" : "warn";
+        } catch (e) {
+          this.msg = "Network error: " + e.message;
+          this.level = "err";
+        } finally {
+          this.busy = false;
+        }
+      },
+    }));
+
+    // Shared drag-and-drop image upload to /api/upload. Two modes:
+    //   mode="url"    — set el.value to the returned URL (for image_url inputs)
+    //   mode="markdown" — insert `![alt](url)` at the caret (for content textareas)
+    Alpine.data("imageDrop", (mode) => ({
+      dragging: false,
+      status: "",
+      level: "",
+      url: "",
+      init() {
+        if (mode === "url") {
+          const el = this.$el.querySelector('input[type="url"]');
+          if (el) {
+            this.url = el.value || "";
+            el.addEventListener("input", () => { this.url = el.value; });
+          }
+        }
+      },
+      clearUrl() {
+        const el = this.$el.querySelector('input[type="url"]');
+        if (el) {
+          el.value = "";
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.focus();
+        }
+        this.url = "";
+      },
+      async upload(file) {
+        if (!file || !file.type || !file.type.startsWith("image/")) {
+          this.status = "Not an image.";
+          this.level = "err";
+          return null;
+        }
+        this.status = `Uploading ${file.name}…`;
+        this.level = "";
+        const fd = new FormData();
+        fd.append("file", file);
+        try {
+          const r = await fetch("/api/upload", { method: "POST", body: fd });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            this.status = data.error || `Upload failed (${r.status})`;
+            this.level = "err";
+            return null;
+          }
+          const kb = (n) => Math.round(n / 1024);
+          const saved = data.saved_bytes || 0;
+          const suffix = saved > 1024
+            ? ` (${kb(data.original_size)}→${kb(data.size)} KB, ${Math.round(100*saved/data.original_size)}% smaller)`
+            : "";
+          this.status = `Uploaded ${file.name}${suffix}`;
+          this.level = "ok";
+          return data.url;
+        } catch (e) {
+          this.status = "Network error: " + e.message;
+          this.level = "err";
+          return null;
+        }
+      },
+      async handleFiles(files, el) {
+        if (!files || files.length === 0) return;
+        for (const f of files) {
+          const url = await this.upload(f);
+          if (!url) continue;
+          if (mode === "url") {
+            el.value = url;
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+          } else if (mode === "markdown") {
+            const alt = f.name.replace(/\.[^/.]+$/, "");
+            const snippet = `\n![${alt}](${url})\n`;
+            const start = el.selectionStart ?? el.value.length;
+            const end = el.selectionEnd ?? el.value.length;
+            el.value = el.value.slice(0, start) + snippet + el.value.slice(end);
+            const pos = start + snippet.length;
+            el.focus();
+            el.setSelectionRange(pos, pos);
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        }
+      },
+      onDragOver(e) {
+        if (e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")) {
+          e.preventDefault();
+          this.dragging = true;
+        }
+      },
+      onDragLeave(e) {
+        // Only reset when leaving the element, not crossing into a child.
+        if (!this.$el.contains(e.relatedTarget)) this.dragging = false;
+      },
+      onDrop(e) {
+        e.preventDefault();
+        this.dragging = false;
+        // The drop zone is usually a wrapper div; find the real target input/textarea inside it.
+        const tag = this.$el.tagName;
+        const el = (tag === "INPUT" || tag === "TEXTAREA")
+          ? this.$el
+          : this.$el.querySelector("input, textarea");
+        if (!el) return;
+        this.handleFiles(e.dataTransfer.files, el);
+      },
+      onPaste(e) {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        const files = [];
+        for (const it of items) {
+          if (it.kind === "file") {
+            const f = it.getAsFile();
+            if (f) files.push(f);
+          }
+        }
+        if (!files.length) return;
+        e.preventDefault();
+        // The drop zone is usually a wrapper div; find the real target input/textarea inside it.
+        const tag = this.$el.tagName;
+        const el = (tag === "INPUT" || tag === "TEXTAREA")
+          ? this.$el
+          : this.$el.querySelector("input, textarea");
+        this.handleFiles(files, el);
+      },
+    }));
+
+    const escapeHtml = (s) => s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    Alpine.data("publishSocial", (opts) => ({
+      open: false,
+      text: opts.text || "",
+      mastoLimit: opts.mastoLimit,
+      bskyLimit: opts.bskyLimit,
+      canMasto: !!opts.canMasto,
+      canBsky: !!opts.canBsky,
+      imageUrl: opts.imageUrl || "",
+      imageAlt: opts.imageAlt || "",
+      canonicalUrl: opts.canonicalUrl || "",
+      // Default ON when a URL is available — the whole point of syndicating
+      // is to invite readers back to the canonical post, so auto-include.
+      includeUrl: !!opts.canonicalUrl,
+      toMasto: !!opts.canMasto,
+      toBsky: !!opts.canBsky,
+      get len() { return [...this.text].length; },
+      get urlAlreadyPresent() {
+        return !!this.canonicalUrl && this.text.includes(this.canonicalUrl);
+      },
+      // What the post will actually contain once the URL is (conditionally)
+      // appended. Used by the live character counters so the user sees the
+      // real length, not the draft length.
+      get effectiveText() {
+        if (!this.includeUrl || !this.canonicalUrl || this.urlAlreadyPresent) {
+          return this.text;
+        }
+        const sep = this.text.trim() ? "\n\n" : "";
+        return this.text + sep + this.canonicalUrl;
+      },
+      get effectiveLen() { return [...this.effectiveText].length; },
+      // What the length would be if we appended the URL right now, regardless
+      // of the current checkbox state. Lets the UI flag the case where enabling
+      // "append URL" would push the post over Mastodon/Bluesky limits.
+      get projectedLen() {
+        if (!this.canonicalUrl || this.urlAlreadyPresent) return this.len;
+        const sep = this.text.trim() ? "\n\n" : "";
+        return [...(this.text + sep + this.canonicalUrl)].length;
+      },
+      get wouldOverflowWithUrl() {
+        if (!this.canonicalUrl || this.urlAlreadyPresent) return false;
+        const limit = Math.min(this.mastoLimit, this.bskyLimit);
+        return this.projectedLen > limit;
+      },
+      get submitLabel() {
+        const picks = [];
+        if (this.toMasto) picks.push("Mastodon");
+        if (this.toBsky) picks.push("Bluesky");
+        if (picks.length === 0) return "Pick a network";
+        return "Publish to " + picks.join(" + ");
+      },
+      get highlightedHtml() {
+        const chars = [...this.text];
+        const lo = Math.min(this.mastoLimit, this.bskyLimit);
+        const hi = Math.max(this.mastoLimit, this.bskyLimit);
+        let out = "";
+        let cls = "";
+        let buf = "";
+        const flush = () => {
+          if (!buf) return;
+          const esc = escapeHtml(buf).replace(/\n/g, "<br>");
+          out += cls ? `<span class="${cls}">${esc}</span>` : esc;
+          buf = "";
+        };
+        chars.forEach((ch, i) => {
+          let next = "";
+          if (i >= hi) next = "over-masto";
+          else if (i >= lo) next = "over-bsky";
+          if (next !== cls) { flush(); cls = next; }
+          buf += ch;
+        });
+        flush();
+        // Trailing newline needs padding so the overlay height matches.
+        if (this.text.endsWith("\n")) out += "<br>&nbsp;";
+        return out || "&nbsp;";
+      },
+      sync() { this.syncScroll(); },
+      syncScroll() {
+        const ta = this.$refs.textarea;
+        const hl = this.$refs.highlight;
+        if (ta && hl) {
+          hl.scrollTop = ta.scrollTop;
+          hl.scrollLeft = ta.scrollLeft;
+        }
+      },
+      onSubmit(e) {
+        if (!(this.toMasto || this.toBsky)) { e.preventDefault(); return; }
+        const targets = [];
+        if (this.toMasto) targets.push("Mastodon");
+        if (this.toBsky) targets.push("Bluesky");
+        // Bake the URL into `text` before submission so the server sees the
+        // final post. Skip if it's already present (avoids double-append when
+        // the user typed the URL manually or re-opens the modal).
+        if (this.includeUrl && this.canonicalUrl && !this.urlAlreadyPresent) {
+          const sep = this.text.trim() ? "\n\n" : "";
+          this.text = this.text + sep + this.canonicalUrl;
+        }
+        const finalLen = [...this.text].length;
+        const warn = [];
+        if (this.toMasto && finalLen > this.mastoLimit) {
+          warn.push(`Mastodon (${finalLen}/${this.mastoLimit})`);
+        }
+        if (this.toBsky && finalLen > this.bskyLimit) {
+          warn.push(`Bluesky (${finalLen}/${this.bskyLimit})`);
+        }
+        const base = `Publish to ${targets.join(" + ")}?`;
+        const msg = warn.length
+          ? `${base}\n\nDraft exceeds limits for: ${warn.join(", ")}. It will be truncated.`
+          : base;
+        if (!confirm(msg)) e.preventDefault();
+      },
+    }));
+
     Alpine.data("editForm", () => ({
       slug: initial.slug,
       title: initial.title,
       slugTouched: initial.slugWasSet,
       contentLen: initial.contentLen,
+      slugSuggesting: false,
+      slugSuggestMsg: "",
+      slugSuggestLevel: "",
+      async suggestSlug() {
+        // Prefer the title if filled; otherwise pull from content/description.
+        const form = this.$root.closest("form") || this.$root;
+        const pick = (sel) => {
+          const el = form.querySelector(sel);
+          return el && el.value ? el.value.trim() : "";
+        };
+        const src = this.title || pick('[name="title"]')
+                 || pick('[name="name"]')
+                 || pick('[name="description"]')
+                 || pick('[name="content"]');
+        if (!src) {
+          this.slugSuggestMsg = "Need a title or content first.";
+          this.slugSuggestLevel = "err";
+          return;
+        }
+        this.slugSuggesting = true;
+        this.slugSuggestMsg = "";
+        this.slugSuggestLevel = "";
+        try {
+          const fd = new FormData();
+          fd.append("text", src);
+          const r = await fetch("/api/ai/slug", { method: "POST", body: fd });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || !data.slug) {
+            this.slugSuggestMsg = data.error || `Request failed (${r.status})`;
+            this.slugSuggestLevel = "err";
+            return;
+          }
+          this.slug = data.slug;
+          this.slugTouched = true;
+          this.slugSuggestMsg = data.source === "fallback"
+            ? "Used rule-based fallback (Ollama unreachable)."
+            : "Generated via Ollama.";
+          this.slugSuggestLevel = data.source === "fallback" ? "warn" : "ok";
+        } catch (e) {
+          this.slugSuggestMsg = "Network error: " + e.message;
+          this.slugSuggestLevel = "err";
+        } finally {
+          this.slugSuggesting = false;
+        }
+      },
       slugify(s) {
+        // NFKD decomposes accented chars (é → e + combining mark), then
+        // the combining-mark range gets stripped before the [^a-z0-9] pass.
         return (s || "")
+          .normalize("NFKD")
+          .replace(/[̀-ͯ]/g, "")
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "")
@@ -148,9 +641,19 @@
       <span>{{ col }}</span>
 
       {% if col == "content" %}
-        <textarea name="content" rows="{{ content_rows }}"
-                  {% if show_counter %}x-on:input="contentLen = $event.target.value.length"{% endif %}
-        >{{ val or "" }}</textarea>
+        <div x-data="imageDrop('markdown')"
+             :class="dragging ? 'is-dragging' : ''"
+             class="drop-zone"
+             @dragover="onDragOver($event)"
+             @dragleave="onDragLeave($event)"
+             @drop="onDrop($event)">
+          <textarea name="content" rows="{{ content_rows }}"
+                    @paste="onPaste($event)"
+                    {% if show_counter %}x-on:input="contentLen = $event.target.value.length"{% endif %}
+          >{{ val or "" }}</textarea>
+          <small class="drop-hint" x-text="status || 'Drop or paste an image to upload'"
+                 :class="level ? 'drop-' + level : ''"></small>
+        </div>
         {% if show_counter %}
           <small class="muted counter"
                  :class="contentLen > {{ counter_limit }} ? 'over' : ''">
@@ -171,14 +674,49 @@
         </div>
 
       {% elif col == "slug" %}
-        <input type="text" name="slug"
-               x-model="slug"
-               @input="slugTouched = true">
+        <div class="slug-row">
+          <input type="text" name="slug"
+                 x-model="slug"
+                 @input="slugTouched = true">
+          <button type="button" class="secondary ai-btn"
+                  :disabled="slugSuggesting"
+                  @click="suggestSlug()"
+                  :title="slugSuggesting ? 'Thinking…' : 'Suggest slug (AI)'"
+                  aria-label="Suggest slug">
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M12 2.5l1.8 4.7 4.7 1.8-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.8z"/>
+              <path fill="currentColor" opacity="0.55" d="M18 14l.9 2.3 2.3.9-2.3.9L18 20.4l-.9-2.3-2.3-.9 2.3-.9z"/>
+            </svg>
+          </button>
+        </div>
+        <small class="slug-hint muted" x-show="slugSuggestMsg"
+               :class="slugSuggestLevel ? 'slug-' + slugSuggestLevel : ''"
+               x-text="slugSuggestMsg"></small>
 
       {% elif col == "title" or col == "name" %}
         <input type="text" name="{{ col }}" x-model="title">
 
-      {% elif col == "image_url" or col == "external_link" or col == "url" %}
+      {% elif col == "image_url" %}
+        <div x-data="imageDrop('url')"
+             :class="dragging ? 'is-dragging' : ''"
+             class="drop-zone drop-zone-inline"
+             @dragover="onDragOver($event)"
+             @dragleave="onDragLeave($event)"
+             @drop="onDrop($event)">
+          <input type="url" name="{{ col }}" value="{{ val or '' }}"
+                 @paste="onPaste($event)">
+          <div class="image-preview" x-show="url" x-cloak>
+            <img :src="url" alt=""
+                 @error="$el.closest('.image-preview').classList.add('is-broken')"
+                 @load="$el.closest('.image-preview').classList.remove('is-broken')">
+            <button type="button" class="image-preview-clear secondary"
+                    @click="clearUrl()" aria-label="Clear image">×</button>
+          </div>
+          <small class="drop-hint" x-text="status || 'Drop or paste an image to upload'"
+                 :class="level ? 'drop-' + level : ''"></small>
+        </div>
+
+      {% elif col == "external_link" or col == "url" %}
         <input type="url" name="{{ col }}" value="{{ val or '' }}">
 
       {% elif col in ("latitude", "longitude") %}
@@ -207,9 +745,53 @@
   {% endfor %}
 
   {% if ct.has_tags %}
-    <label>
+    <label x-data="tagSuggest"
+           x-init="value = {{ (tags | join(', ')) | tojson }}">
       <span>tags (comma-separated)</span>
-      <input type="text" name="tags" value="{{ tags | join(', ') }}">
+      <div class="tags-row">
+        <input type="text" name="tags" x-model="value" x-ref="tagInput">
+        <button type="button" class="secondary ai-btn"
+                :disabled="busy"
+                @click="suggest()"
+                :title="busy ? 'Thinking…' : 'Suggest tags (AI)'"
+                aria-label="Suggest tags">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M12 2.5l1.8 4.7 4.7 1.8-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.8z"/>
+            <path fill="currentColor" opacity="0.55" d="M18 14l.9 2.3 2.3.9-2.3.9L18 20.4l-.9-2.3-2.3-.9 2.3-.9z"/>
+          </svg>
+        </button>
+      </div>
+      <small class="slug-hint muted" x-show="msg"
+             :class="level ? 'slug-' + level : ''"
+             x-text="msg"></small>
+      <div class="tag-suggestions" x-show="suggestions.length" x-cloak>
+        <template x-if="knownSuggestions.length">
+          <div class="tag-group">
+            <small class="tag-group-label muted">Reusing from your library</small>
+            <div class="tag-group-chips">
+              <template x-for="s in knownSuggestions" :key="'k-' + s.tag">
+                <button type="button" class="tag-chip is-known"
+                        :class="isActive(s.tag) ? 'is-active' : ''"
+                        @click="toggle(s.tag)"
+                        x-text="s.tag"></button>
+              </template>
+            </div>
+          </div>
+        </template>
+        <template x-if="newSuggestions.length">
+          <div class="tag-group">
+            <small class="tag-group-label muted">New suggestions</small>
+            <div class="tag-group-chips">
+              <template x-for="s in newSuggestions" :key="'n-' + s.tag">
+                <button type="button" class="tag-chip is-new"
+                        :class="isActive(s.tag) ? 'is-active' : ''"
+                        @click="toggle(s.tag)"
+                        x-text="'+ ' + s.tag"></button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
     </label>
   {% endif %}
 
