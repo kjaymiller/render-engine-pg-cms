@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}Webmentions{% endblock %}
+
+{% block content %}
+<header class="page-head" data-kicker="Auto · every {{ (interval // 3600) }}h {{ ((interval % 3600) // 60) }}m">
+  <h1><em>Webmentions</em></h1>
+  <form method="post" action="/webmentions/sync" x-data>
+    <button type="submit" class="btn"
+            :disabled="$store.wm.running"
+            x-text="$store.wm.running ? 'Syncing…' : 'Sync now'"></button>
+  </form>
+</header>
+
+<section class="wm-summary" x-data>
+  <dl class="wm-stats">
+    <div><dt>Status</dt><dd>
+      <template x-if="$store.wm.running">
+        <span class="wm-pulse">
+          <span x-text="'syncing ' + $store.wm.processed + ' / ' + ($store.wm.total_expected || '?')"></span>
+        </span>
+      </template>
+      <template x-if="!$store.wm.running && $store.wm.finished_at">
+        <span x-text="'done · ' + ($store.wm.trigger || '')"></span>
+      </template>
+      <template x-if="!$store.wm.running && !$store.wm.finished_at">
+        <span>idle</span>
+      </template>
+    </dd></div>
+    <div><dt>Records</dt><dd><span x-text="$store.wm.total"></span></dd></div>
+    <div><dt>Changed</dt><dd><strong x-text="$store.wm.changed"></strong></dd></div>
+    <div><dt>Failed</dt><dd x-text="$store.wm.failed"></dd></div>
+    <div><dt>Last update</dt><dd x-text="$store.wm.last_update || $store.wm.started_at || '—'"></dd></div>
+  </dl>
+
+  <div class="wm-progress" x-show="$store.wm.running" x-cloak>
+    <div class="wm-progress-track">
+      <div class="wm-progress-fill"
+           :style="`width: ${$store.wm.total_expected ? (100 * $store.wm.processed / $store.wm.total_expected) : 0}%`"></div>
+    </div>
+  </div>
+
+  <div x-data x-show="$store.wm.error" x-cloak class="flash flash-err">
+    Last run error: <span x-text="$store.wm.error"></span>
+  </div>
+</section>
+
+<table class="records wm-log" x-data>
+  <thead>
+    <tr><th>Type</th><th>Slug</th><th>Prev</th><th>Now</th><th>Δ</th><th>Breakdown</th><th>Status</th></tr>
+  </thead>
+  <tbody id="wm-rows">
+    {% for r in results %}
+      {% set delta = (r.count or 0) - (r.prev or 0) %}
+      {% set changed = r.error is none and r.count != r.prev %}
+      {% set ts = r.types or {} %}
+      <tr class="{% if r.error %}wm-row-err{% elif changed %}wm-row-new{% endif %}">
+        <td><span class="tl-badge">{{ r.type }}</span></td>
+        <td><a href="/c/{{ r.type }}/{{ r.id }}">{{ r.slug }}</a></td>
+        <td class="num">{{ r.prev }}</td>
+        <td class="num">{% if r.count is not none %}{{ r.count }}{% else %}—{% endif %}</td>
+        <td class="num wm-delta">
+          {%- if r.error %}—
+          {%- elif delta > 0 %}+{{ delta }}
+          {%- elif delta < 0 %}{{ delta }}
+          {%- else %}·{% endif -%}
+        </td>
+        <td class="wm-types-cell">
+          {% if ts.get("like") %}<span class="wm-type wm-type-like">♥ {{ ts["like"] }}</span>{% endif %}
+          {% if ts.get("repost") %}<span class="wm-type wm-type-repost">🔁 {{ ts["repost"] }}</span>{% endif %}
+          {% if ts.get("in-reply-to") %}<span class="wm-type wm-type-reply">💬 {{ ts["in-reply-to"] }}</span>{% endif %}
+          {% if ts.get("mention-of") %}<span class="wm-type">↗ {{ ts["mention-of"] }}</span>{% endif %}
+          {% if ts.get("bookmark-of") %}<span class="wm-type">🔖 {{ ts["bookmark-of"] }}</span>{% endif %}
+        </td>
+        <td>{% if r.error %}<span class="error">{{ r.error | truncate(80) }}</span>{% else %}ok{% endif %}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="muted" id="wm-empty" {% if results %}hidden{% endif %}>
+  No sync has run yet. Press <strong>Sync now</strong> above or wait for the scheduled refresh.
+</p>
+
+<script>
+  (function () {
+    const tbody = document.getElementById("wm-rows");
+    const empty = document.getElementById("wm-empty");
+
+    function badge(type) {
+      const s = document.createElement("span");
+      s.className = "tl-badge";
+      s.textContent = type;
+      return s;
+    }
+
+    const TYPE_LABELS = {
+      "like": { emoji: "♥", cls: "wm-type-like" },
+      "repost": { emoji: "🔁", cls: "wm-type-repost" },
+      "in-reply-to": { emoji: "💬", cls: "wm-type-reply" },
+      "mention-of": { emoji: "↗", cls: "" },
+      "bookmark-of": { emoji: "🔖", cls: "" },
+    };
+
+    function typesCell(types) {
+      const td = document.createElement("td");
+      td.className = "wm-types-cell";
+      for (const key of Object.keys(TYPE_LABELS)) {
+        const n = types && types[key];
+        if (!n) continue;
+        const span = document.createElement("span");
+        span.className = `wm-type ${TYPE_LABELS[key].cls}`.trim();
+        span.textContent = `${TYPE_LABELS[key].emoji} ${n}`;
+        td.appendChild(span);
+      }
+      return td;
+    }
+
+    function appendRow(entry) {
+      const delta = (entry.count || 0) - (entry.prev || 0);
+      const changed = !entry.error && entry.count !== entry.prev;
+      const tr = document.createElement("tr");
+      tr.className = entry.error ? "wm-row-err" : (changed ? "wm-row-new wm-row-flash" : "");
+
+      const td1 = document.createElement("td"); td1.appendChild(badge(entry.type));
+      const td2 = document.createElement("td");
+      const a = document.createElement("a");
+      a.href = `/c/${entry.type}/${entry.id}`;
+      a.textContent = entry.slug;
+      td2.appendChild(a);
+      const td3 = document.createElement("td"); td3.className = "num"; td3.textContent = entry.prev;
+      const td4 = document.createElement("td"); td4.className = "num";
+      td4.textContent = entry.count != null ? entry.count : "—";
+      const td5 = document.createElement("td"); td5.className = "num wm-delta";
+      td5.textContent = entry.error ? "—" : (delta > 0 ? `+${delta}` : (delta < 0 ? String(delta) : "·"));
+      const td6 = typesCell(entry.types || {});
+      const td7 = document.createElement("td");
+      if (entry.error) {
+        const span = document.createElement("span");
+        span.className = "error";
+        span.textContent = entry.error.length > 80 ? entry.error.slice(0, 80) + "…" : entry.error;
+        td7.appendChild(span);
+      } else {
+        td7.textContent = "ok";
+      }
+      tr.append(td1, td2, td3, td4, td5, td6, td7);
+      tbody.prepend(tr);
+      if (empty) empty.hidden = true;
+    }
+
+    document.addEventListener("alpine:init", () => {
+      Alpine.store("wm", {
+        running: {{ state.running | tojson }},
+        started_at: {{ (state.started_at or "") | tojson }},
+        finished_at: {{ (state.finished_at or "") | tojson }},
+        last_update: {{ (state.last_update or "") | tojson }},
+        trigger: {{ (state.trigger or "") | tojson }},
+        error: {{ (state.error or "") | tojson }},
+        total_expected: {{ state.total_expected | default(0) }},
+        processed: {{ state.processed | default(results | length) }},
+        total: {{ results | length }},
+        ok: {{ results | selectattr("error", "none") | list | length }},
+        failed: {{ results | rejectattr("error", "none") | list | length }},
+        changed: 0,
+        _timer: null,
+        _since: {{ results | length }},
+        _wasRunning: {{ state.running | tojson }},
+        async refresh() {
+          try {
+            const r = await fetch(`/webmentions/status?since=${this._since}`,
+              { headers: { "accept": "application/json" } });
+            if (!r.ok) return;
+            const s = await r.json();
+            // Append any new rows that finished since the last poll.
+            if (s.new && s.new.length) {
+              for (const entry of s.new) appendRow(entry);
+              this._since += s.new.length;
+            }
+            this.running = s.running;
+            this.started_at = s.started_at;
+            this.finished_at = s.finished_at;
+            this.last_update = s.last_update;
+            this.trigger = s.trigger;
+            this.error = s.error;
+            this.total_expected = s.total_expected;
+            this.processed = s.processed;
+            this.total = s.total;
+            this.ok = s.ok;
+            this.failed = s.failed;
+            this.changed = s.changed;
+            // Poll faster while running, slower when idle.
+            const nextDelay = s.running ? 1500 : 5000;
+            this._wasRunning = s.running;
+            clearInterval(this._timer);
+            this._timer = setInterval(() => this.refresh(), nextDelay);
+          } catch (_) {}
+        },
+        start() {
+          this.refresh();
+        },
+      });
+      Alpine.store("wm").start();
+    });
+  })();
+</script>
+{% endblock %}
