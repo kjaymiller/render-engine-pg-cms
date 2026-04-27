@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status %}
+{% from "_icons.html" import webmentions_status, publish_social_modal %}
 {% block title %}Timeline{% endblock %}
 
 {% block content %}
@@ -80,8 +80,14 @@
             </h3>
             <span class="status-cluster">
               {% if r._type in ("microblog", "blog") %}
-                {% if mastodon_enabled %}{{ mastodon_status(r) }}{% endif %}
-                {% if bluesky_enabled %}{{ bluesky_status(r) }}{% endif %}
+                {% if mastodon_enabled or bluesky_enabled %}
+                  {{ publish_social_modal(
+                       r._type, r, mastodon_enabled, bluesky_enabled,
+                       r._social_draft, r._social_image_url,
+                       r._social_image_alt, r._social_canonical_url,
+                       masto_limit, bsky_limit,
+                       label="Post →", btn_class="publish-social-btn is-compact") }}
+                {% endif %}
                 {{ webmentions_status(r) }}
               {% endif %}
             </span>

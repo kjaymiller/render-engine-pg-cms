@@ -314,6 +314,26 @@ def _ct(name: str) -> ContentType:
     return c.content_types[name]
 
 
+def _social_context(
+    ct_name: str, record: dict, tags: list[str],
+) -> tuple[str, str | None, str, str]:
+    """Compute the publish-to-social modal inputs for a record.
+
+    Returns (draft_text, image_url, image_alt, canonical_url). canonical_url
+    is empty when site_base_url or slug isn't configured — the UI hides the
+    "append URL" checkbox in that case.
+    """
+    draft = build_status_text(ct_name, record, tags)
+    image_url, image_alt = _pick_image(ct_name, record)
+    try:
+        canonical = build_webmention_target_url(
+            cfg(), ct_name, record.get("slug") or "",
+        )
+    except Exception:  # noqa: BLE001
+        canonical = ""
+    return draft, image_url, image_alt, canonical
+
+
 def _render_edit(
     request: Request,
     ct: ContentType,
@@ -335,22 +355,11 @@ def _render_edit(
         and can_syndicate
         and bool(cfg().bluesky_handle and cfg().bluesky_app_password)
     )
-    social_draft = ""
-    social_image_url: str | None = None
-    social_image_alt = ""
-    canonical_url = ""
-    if (has_mastodon or has_bluesky) and record:
-        social_draft = build_status_text(ct.name, record, tags)
-        social_image_url, social_image_alt = _pick_image(ct.name, record)
-        # Build the live post URL so the social modal can offer to append it.
-        # build_target_url raises if site_base_url/slug is missing; falling
-        # back to empty lets the UI hide the checkbox.
-        try:
-            canonical_url = build_webmention_target_url(
-                cfg(), ct.name, record.get("slug") or "",
-            )
-        except Exception:  # noqa: BLE001
-            canonical_url = ""
+    social_draft, social_image_url, social_image_alt, canonical_url = (
+        _social_context(ct.name, record, tags)
+        if (has_mastodon or has_bluesky) and record
+        else ("", None, "", "")
+    )
     return templates.TemplateResponse(
         request,
         "edit.html",
@@ -397,6 +406,22 @@ def index(
     page = min(page, pages)
     start = (page - 1) * per
     rows = all_rows[start:start + per]
+    mastodon_enabled = bool(cfg().mastodon_instance)
+    bluesky_enabled = bool(cfg().bluesky_handle and cfg().bluesky_app_password)
+    # Annotate each timeline row with the same social-publish context the
+    # single-record edit page uses, so the unified "Publish to social" modal
+    # can be opened directly from the timeline. Tags aren't loaded for the
+    # timeline (would be N extra queries per page), so the auto-draft skips
+    # hashtags — the user can still type them in the modal.
+    if mastodon_enabled or bluesky_enabled:
+        for r in rows:
+            if r["_type"] not in ("microblog", "blog"):
+                continue
+            draft, img, alt, canon = _social_context(r["_type"], r, [])
+            r["_social_draft"] = draft
+            r["_social_image_url"] = img
+            r["_social_image_alt"] = alt
+            r["_social_canonical_url"] = canon
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -410,10 +435,10 @@ def index(
             "per": per,
             "total": total,
             "timeline_types": timeline_types,
-            "mastodon_enabled": bool(cfg().mastodon_instance),
-            "bluesky_enabled": bool(
-                cfg().bluesky_handle and cfg().bluesky_app_password
-            ),
+            "mastodon_enabled": mastodon_enabled,
+            "bluesky_enabled": bluesky_enabled,
+            "masto_limit": 500,
+            "bsky_limit": 300,
         },
     )
 

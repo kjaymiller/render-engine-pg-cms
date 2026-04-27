@@ -117,6 +117,111 @@
         start() { this.poll(); },
       }));
     });
+    const _escapeHtml = (s) => s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    document.addEventListener("alpine:init", () => {
+      Alpine.data("publishSocial", (opts) => ({
+        open: false,
+        text: opts.text || "",
+        mastoLimit: opts.mastoLimit,
+        bskyLimit: opts.bskyLimit,
+        canMasto: !!opts.canMasto,
+        canBsky: !!opts.canBsky,
+        imageUrl: opts.imageUrl || "",
+        imageAlt: opts.imageAlt || "",
+        canonicalUrl: opts.canonicalUrl || "",
+        includeUrl: !!opts.canonicalUrl,
+        toMasto: !!opts.canMasto,
+        toBsky: !!opts.canBsky,
+        get len() { return [...this.text].length; },
+        get urlAlreadyPresent() {
+          return !!this.canonicalUrl && this.text.includes(this.canonicalUrl);
+        },
+        get effectiveText() {
+          if (!this.includeUrl || !this.canonicalUrl || this.urlAlreadyPresent) {
+            return this.text;
+          }
+          const sep = this.text.trim() ? "\n\n" : "";
+          return this.text + sep + this.canonicalUrl;
+        },
+        get effectiveLen() { return [...this.effectiveText].length; },
+        get projectedLen() {
+          if (!this.canonicalUrl || this.urlAlreadyPresent) return this.len;
+          const sep = this.text.trim() ? "\n\n" : "";
+          return [...(this.text + sep + this.canonicalUrl)].length;
+        },
+        get wouldOverflowWithUrl() {
+          if (!this.canonicalUrl || this.urlAlreadyPresent) return false;
+          const limit = Math.min(this.mastoLimit, this.bskyLimit);
+          return this.projectedLen > limit;
+        },
+        get submitLabel() {
+          const picks = [];
+          if (this.toMasto) picks.push("Mastodon");
+          if (this.toBsky) picks.push("Bluesky");
+          if (picks.length === 0) return "Pick a network";
+          return "Publish to " + picks.join(" + ");
+        },
+        get highlightedHtml() {
+          const chars = [...this.text];
+          const lo = Math.min(this.mastoLimit, this.bskyLimit);
+          const hi = Math.max(this.mastoLimit, this.bskyLimit);
+          let out = "";
+          let cls = "";
+          let buf = "";
+          const flush = () => {
+            if (!buf) return;
+            const esc = _escapeHtml(buf).replace(/\n/g, "<br>");
+            out += cls ? `<span class="${cls}">${esc}</span>` : esc;
+            buf = "";
+          };
+          chars.forEach((ch, i) => {
+            let next = "";
+            if (i >= hi) next = "over-masto";
+            else if (i >= lo) next = "over-bsky";
+            if (next !== cls) { flush(); cls = next; }
+            buf += ch;
+          });
+          flush();
+          if (this.text.endsWith("\n")) out += "<br>&nbsp;";
+          return out || "&nbsp;";
+        },
+        sync() { this.syncScroll(); },
+        syncScroll() {
+          const ta = this.$refs.textarea;
+          const hl = this.$refs.highlight;
+          if (ta && hl) {
+            hl.scrollTop = ta.scrollTop;
+            hl.scrollLeft = ta.scrollLeft;
+          }
+        },
+        onSubmit(e) {
+          if (!(this.toMasto || this.toBsky)) { e.preventDefault(); return; }
+          const targets = [];
+          if (this.toMasto) targets.push("Mastodon");
+          if (this.toBsky) targets.push("Bluesky");
+          if (this.includeUrl && this.canonicalUrl && !this.urlAlreadyPresent) {
+            const sep = this.text.trim() ? "\n\n" : "";
+            this.text = this.text + sep + this.canonicalUrl;
+          }
+          const finalLen = [...this.text].length;
+          const warn = [];
+          if (this.toMasto && finalLen > this.mastoLimit) {
+            warn.push(`Mastodon (${finalLen}/${this.mastoLimit})`);
+          }
+          if (this.toBsky && finalLen > this.bskyLimit) {
+            warn.push(`Bluesky (${finalLen}/${this.bskyLimit})`);
+          }
+          const base = `Publish to ${targets.join(" + ")}?`;
+          const msg = warn.length
+            ? `${base}\n\nDraft exceeds limits for: ${warn.join(", ")}. It will be truncated.`
+            : base;
+          if (!confirm(msg)) e.preventDefault();
+        },
+      }));
+    });
     document.addEventListener("alpine:init", () => {
       Alpine.data("publishBtn", () => ({
         configured: true,

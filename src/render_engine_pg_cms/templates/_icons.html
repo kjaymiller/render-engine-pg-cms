@@ -69,3 +69,120 @@
     d="M4 4h16c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2H8l-4 4V6c0-1.1.9-2 2-2zm2 4v2h12V8H6zm0 4v2h9v-2H6z"/>
 </svg>
 {%- endmacro %}
+
+{# Combined publish-to-social button + modal. The Alpine `publishSocial`
+   data definition lives in base.html so this markup can appear anywhere. #}
+{% macro publish_social_modal(ct_name, record, has_mastodon, has_bluesky,
+    social_draft, social_image_url, social_image_alt, social_canonical_url,
+    masto_limit, bsky_limit, label="Publish to social", btn_class="publish-social-btn") -%}
+{%- set can_post_masto = has_mastodon and not record.get("mastodon_url") -%}
+{%- set can_post_bsky = has_bluesky and not record.get("bluesky_url") -%}
+{%- if can_post_masto or can_post_bsky -%}
+<span class="publish-social-wrap"
+      x-data='publishSocial({
+        text: {{ social_draft | tojson }},
+        mastoLimit: {{ masto_limit }},
+        bskyLimit: {{ bsky_limit }},
+        canMasto: {{ can_post_masto | tojson }},
+        canBsky: {{ can_post_bsky | tojson }},
+        imageUrl: {{ (social_image_url or "") | tojson }},
+        imageAlt: {{ (social_image_alt or "") | tojson }},
+        canonicalUrl: {{ (social_canonical_url or "") | tojson }}
+      })'>
+  <button type="button" class="{{ btn_class }}" @click="open = true">
+    {{ label }}
+  </button>
+
+  <template x-teleport="body">
+  <div class="modal-backdrop" x-show="open" x-transition.opacity
+       @click.self="open = false" @keydown.escape.window="open = false"
+       style="display:none">
+    <div class="modal-card" role="dialog" aria-modal="true"
+         aria-labelledby="publish-social-title-{{ ct_name }}-{{ record.id }}">
+      <header class="modal-head">
+        <h2 id="publish-social-title-{{ ct_name }}-{{ record.id }}">Publish to social</h2>
+        <button type="button" class="modal-close" @click="open = false"
+                aria-label="Close">×</button>
+      </header>
+
+      <form method="post"
+            action="/c/{{ ct_name }}/{{ record.id }}/syndicate"
+            @submit="onSubmit($event)">
+        <div class="social-targets">
+          <label :class="canMasto ? '' : 'is-disabled'">
+            <input type="checkbox" name="post_mastodon" value="1"
+                   x-model="toMasto" :disabled="!canMasto">
+            <span class="target-dot target-masto"></span>
+            Mastodon
+            <small class="muted"
+                   x-text="canMasto ? ('max ' + mastoLimit) : 'already posted'"></small>
+          </label>
+          <label :class="canBsky ? '' : 'is-disabled'">
+            <input type="checkbox" name="post_bluesky" value="1"
+                   x-model="toBsky" :disabled="!canBsky">
+            <span class="target-dot target-bsky"></span>
+            Bluesky
+            <small class="muted"
+                   x-text="canBsky ? ('max ' + bskyLimit) : 'already posted'"></small>
+          </label>
+        </div>
+
+        <div class="social-editor">
+          <div class="social-highlight" x-ref="highlight" aria-hidden="true"
+               x-html="highlightedHtml"></div>
+          <textarea name="text" x-model="text" x-ref="textarea"
+                    spellcheck="true"
+                    @input="sync()" @scroll="syncScroll()"
+                    rows="8"></textarea>
+        </div>
+
+        <div class="social-meta">
+          <span class="counter-pill"
+                :class="effectiveLen > mastoLimit ? 'over-masto' : ''">
+            Masto: <strong x-text="effectiveLen"></strong>/<span x-text="mastoLimit"></span>
+          </span>
+          <span class="counter-pill"
+                :class="effectiveLen > bskyLimit ? 'over-bsky' : ''">
+            Bsky: <strong x-text="effectiveLen"></strong>/<span x-text="bskyLimit"></span>
+          </span>
+          <template x-if="imageUrl">
+            <span class="image-chip" :title="imageAlt || 'attached image'">
+              <img :src="imageUrl" alt="">
+              <span class="muted">image attached</span>
+            </span>
+          </template>
+        </div>
+
+        <template x-if="canonicalUrl">
+          <label class="include-url" :title="canonicalUrl">
+            <input type="checkbox" x-model="includeUrl"
+                   :disabled="wouldOverflowWithUrl && !includeUrl">
+            <span>Append post URL</span>
+            <small class="muted" x-text="canonicalUrl"></small>
+            <small class="warn" x-show="!includeUrl && !wouldOverflowWithUrl">
+              Breaks webmention attribution: bridgy relays likes/replies/reposts by scanning the post body for URLs on your domain. With no canonical URL in the body, bridgy shows "No webmention targets" and activity is stranded on the silo.
+            </small>
+            <small class="warn" x-show="wouldOverflowWithUrl">
+              Appending the URL would push this over the character limit
+              (<span x-text="projectedLen"></span>/<span x-text="Math.min(mastoLimit, bskyLimit)"></span>).
+              Trim the body first, then re-enable.
+            </small>
+          </label>
+        </template>
+
+        <footer class="modal-foot">
+          <button type="button" class="secondary" @click="open = false">
+            Cancel
+          </button>
+          <button type="submit"
+                  :disabled="!(toMasto || toBsky)">
+            <span x-text="submitLabel"></span>
+          </button>
+        </footer>
+      </form>
+    </div>
+  </div>
+  </template>
+</span>
+{%- endif -%}
+{%- endmacro %}
