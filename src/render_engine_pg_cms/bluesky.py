@@ -108,14 +108,36 @@ def _build_facets(text: str) -> list[dict[str, Any]]:
     return facets
 
 
+def _fit_text(text: str) -> str:
+    """Trim to MAX_CHARS without splitting a URL.
+
+    build_status_text puts the external_link near the end of the post, so
+    naive right-truncation slices the URL mid-path and the resulting facet
+    points at a mangled target. Preserve the trailing URL and shorten the
+    prose before it instead.
+    """
+    if len(text) <= MAX_CHARS:
+        return text
+    urls = list(URL_RE.finditer(text))
+    if urls:
+        last = urls[-1]
+        tail = text[last.start():].rstrip()
+        if len(tail) + 2 < MAX_CHARS:
+            budget = MAX_CHARS - len(tail) - 2
+            head = text[: last.start()].rstrip()
+            if len(head) > budget:
+                head = head[:budget].rstrip() + "…"
+            return f"{head}\n{tail}" if head else tail
+    return text[: MAX_CHARS - 1] + "…"
+
+
 def post_status(
     cfg: Config,
     text: str,
     image_url: str | None = None,
     image_alt: str = "",
 ) -> dict[str, Any]:
-    if len(text) > MAX_CHARS:
-        text = text[: MAX_CHARS - 1] + "…"
+    text = _fit_text(text)
 
     sess = _login(cfg)
 
