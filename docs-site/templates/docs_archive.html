@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head" data-kicker="Documentation">
+  <h1>All docs</h1>
+</header>
+<ul class="doc-list">
+  {% for page in collection %}
+    <li>
+      <a href="/{{ page.url_for }}">
+        <strong>{{ page.title }}</strong>
+        {% if page.description %}<span class="muted"> — {{ page.description }}</span>{% endif %}
+      </a>
+    </li>
+  {% endfor %}
+</ul>
+{% endblock %}

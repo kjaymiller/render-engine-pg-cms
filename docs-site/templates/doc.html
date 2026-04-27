@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<article class="prose">
+  <header class="page-head" data-kicker="Docs">
+    <h1>{{ title }}</h1>
+  </header>
+  {{ content }}
+  <nav class="doc-nav">
+    <a href="/docs/">← All documentation</a>
+  </nav>
+</article>
+{% endblock %}
