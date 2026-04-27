@@ -6,6 +6,7 @@ mastodon_secret := "op://Private/mastodon.social/access-token"
 webmention_secret := "op://Private/Webmention.io/credential"
 bluesky_secret := "op://Private/bluesky/app password"
 github_secret := "op://Private/GH-PAT - Kjaymiller.com PG CMS/credential"
+azure_secret := "op://Private/Azure Storage Connection String/credential"
 
 default:
     @just --list
@@ -14,8 +15,8 @@ default:
 install:
     uv sync
 
-# Run the dev server with auto-reload
-dev:
+# Run the server with auto-reload. Defaults to 127.0.0.1:8000; pass 0.0.0.0 for LAN/tailscale access.
+dev host="127.0.0.1" port="8000":
     #!/usr/bin/env bash
     set -euo pipefail
     export CONNECTION_STRING="$(op read '{{db_secret}}')"
@@ -23,18 +24,8 @@ dev:
     export WEBMENTION_IO_TOKEN="$(op read '{{webmention_secret}}')"
     export BLUESKY_APP_PASSWORD="$(op read '{{bluesky_secret}}')"
     export GITHUB_TOKEN="$(op read '{{github_secret}}')"
-    uv run uvicorn render_engine_pg_cms.main:app --reload
-
-# Run the server bound to 0.0.0.0 for LAN/tailscale access
-serve host="0.0.0.0" port="8000":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export CONNECTION_STRING="$(op read '{{db_secret}}')"
-    export MASTODON_ACCESS_TOKEN="$(op read '{{mastodon_secret}}')"
-    export WEBMENTION_IO_TOKEN="$(op read '{{webmention_secret}}')"
-    export BLUESKY_APP_PASSWORD="$(op read '{{bluesky_secret}}')"
-    export GITHUB_TOKEN="$(op read '{{github_secret}}')"
-    uv run uvicorn render_engine_pg_cms.main:app --host {{host}} --port {{port}}
+    export AZURE_STORAGE_CONNECTION_STRING="$(op read '{{azure_secret}}')"
+    uv run uvicorn render_engine_pg_cms.main:app --reload --host {{host}} --port {{port}}
 
 # Backfill webmention counts for all existing microblog + blog rows.
 sync-webmentions:
@@ -80,6 +71,14 @@ backport-syndication mode="dry":
     else
         uv run python -m render_engine_pg_cms.backport
     fi
+
+# Build the static docs site into docs-site/output/
+docs:
+    cd docs-site && uv run --with render-engine[cli] --with render-engine-markdown render-engine build
+
+# Serve the built docs over HTTP for local preview
+docs-serve port="8001":
+    cd docs-site/output && python -m http.server {{port}}
 
 # Package the Firefox/Zen extension into a loadable .xpi
 extension:
