@@ -42,9 +42,13 @@ from .image_optimize import optimize as optimize_image
 from .ollama import (
     OllamaError,
     suggest_slug as ollama_suggest_slug,
-    suggest_tags as ollama_suggest_tags,
+    suggest_description as ollama_suggest_description,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 log = logging.getLogger("render_engine_pg_cms")
 
 load_dotenv()
@@ -87,12 +91,15 @@ _last_publish_dispatched_at: str | None = None
 
 
 def _record_is_live(record: dict) -> bool:
-    """A record is "live" (worth publishing) when its `date` is in the past.
+    """A record is "live" (worth publishing) when its `date` is in the past
+    AND it's not flagged as a draft.
 
     Records without a `date` column are treated as live — that covers types
     like 'conferences' or anything else the user manages through the CMS
     where temporal gating doesn't apply.
     """
+    if record.get("draft"):
+        return False
     d = record.get("date")
     if d is None:
         return True
@@ -385,6 +392,28 @@ def _render_edit(
     )
 
 
+VALID_STATUSES = ("all", "published", "drafts", "scheduled")
+
+
+def _annotate_scheduled(rows: list[dict]) -> None:
+    """Tag rows with `_scheduled=True` when they're not drafts but have a
+    publish `date` in the future. Used by the list templates to badge them.
+    """
+    from datetime import timezone as _tz
+    now_aware = datetime.now(_tz.utc)
+    now_naive = datetime.utcnow()
+    for r in rows:
+        d = r.get("date")
+        if not d or r.get("draft"):
+            r["_scheduled"] = False
+            continue
+        try:
+            ref = now_aware if (getattr(d, "tzinfo", None) is not None) else now_naive
+            r["_scheduled"] = d > ref
+        except TypeError:
+            r["_scheduled"] = False
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(
     request: Request,
@@ -392,15 +421,25 @@ def index(
     title: str = "",
     page: int = 1,
     per: int = 25,
+    status: str = "all",
 ):
     page = max(1, page)
     per = max(5, min(per, 100))
+    if status not in VALID_STATUSES:
+        status = "all"
     # Only include types with temporal content on the timeline.
     timeline_types = [
         n for n in ("microblog", "blog", "notes")
         if n in cfg().content_types
     ]
-    all_rows = db.list_timeline(cfg(), timeline_types)
+    # Aggregate counts across timeline types for the status tabs.
+    status_counts = {k: 0 for k in VALID_STATUSES}
+    for n in timeline_types:
+        per_type = db.count_by_status(cfg(), cfg().content_types[n])
+        for k, v in per_type.items():
+            status_counts[k] = status_counts.get(k, 0) + v
+    all_rows = db.list_timeline(cfg(), timeline_types, status=status)
+    _annotate_scheduled(all_rows)
     total = len(all_rows)
     pages = max(1, (total + per - 1) // per)
     page = min(page, pages)
@@ -435,6 +474,8 @@ def index(
             "per": per,
             "total": total,
             "timeline_types": timeline_types,
+            "status": status,
+            "status_counts": status_counts,
             "mastodon_enabled": mastodon_enabled,
             "bluesky_enabled": bluesky_enabled,
             "masto_limit": 500,
@@ -559,6 +600,35 @@ async def ai_suggest_slug(text: str = Form(...)):
     return {"slug": slug, "source": "ai"}
 
 
+@app.post("/api/ai/description")
+async def ai_suggest_description(text: str = Form(...)):
+    """Generate a one-sentence summary of `text` via Ollama for use as a
+    description / excerpt. Returns {description, source}. `source` is "ai"
+    on success or "error" if Ollama failed (the field is left empty so
+    the user can write their own).
+    """
+    clean_input = (text or "").strip()
+    if not clean_input:
+        return JSONResponse({"error": "empty input"}, status_code=400)
+    try:
+        summary = await asyncio.to_thread(
+            ollama_suggest_description, cfg(), clean_input,
+        )
+    except OllamaError as exc:
+        log.warning("ollama description failed: %s", exc)
+        return JSONResponse(
+            {"error": str(exc), "source": "error", "description": ""},
+            status_code=503,
+        )
+    if not summary:
+        return JSONResponse(
+            {"error": "model returned empty output", "source": "error",
+             "description": ""},
+            status_code=503,
+        )
+    return {"description": summary, "source": "ai"}
+
+
 def _normalize_tag(raw: str) -> str:
     """Lowercase, trim, collapse whitespace to single hyphens. Keeps existing
     multi-word tags looking consistent with the "hyphen-separated" style."""
@@ -574,71 +644,86 @@ def _normalize_tag(raw: str) -> str:
 
 @app.post("/api/ai/tags")
 async def ai_suggest_tags(text: str = Form(...)):
-    """Ask Ollama for tag suggestions, seeded with the existing tag library.
-
-    Returns {suggestions: [{tag, known}], source}. `known=true` means the tag
-    already exists in the `tags` table — the UI can style those differently.
+    """Suggest tags by fuzzy-matching the post text against the existing
+    tag library (pg_trgm word_similarity). All suggestions are existing
+    library tags, so `known` is always true. Endpoint name kept for
+    backward compat with the frontend.
     """
     clean_input = (text or "").strip()
     if not clean_input:
         return JSONResponse({"error": "empty input"}, status_code=400)
 
     try:
-        existing = await asyncio.to_thread(db.list_all_tags, cfg())
-    except Exception as exc:  # noqa: BLE001
-        log.warning("couldn't load tag library (%s); proceeding without", exc)
-        existing = []
-
-    try:
-        raw_suggestions = await asyncio.to_thread(
-            ollama_suggest_tags, cfg(), clean_input, existing
+        names = await asyncio.to_thread(
+            db.suggest_tags_from_text, cfg(), clean_input, 8,
         )
-    except OllamaError as exc:
-        log.info("ollama tags failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("tag suggestion failed: %s", exc, exc_info=True)
         return JSONResponse(
             {"error": str(exc), "source": "error", "suggestions": []},
-            status_code=503,
+            status_code=500,
         )
 
-    known = {t.lower() for t in existing}
-    seen: set[str] = set()
-    out: list[dict] = []
-    for item in raw_suggestions:
-        tag = _normalize_tag(item.get("tag", ""))
-        if not tag or tag in seen:
-            continue
-        # Guard against the model returning one-character junk or entries
-        # that are obviously instructions, not tags.
-        if len(tag) > 40 or len(tag) < 2:
-            continue
-        seen.add(tag)
-        # Trust set membership over the model's self-report — the model
-        # sometimes flags a near-miss ("web-dev" vs existing "webdev") as
-        # reused. `known` is the ground truth for UI grouping.
-        out.append({"tag": tag, "known": tag in known})
-    return {"suggestions": out, "source": "ai"}
+    out = [{"tag": n, "known": True} for n in names]
+    return {"suggestions": out, "source": "library"}
+
+
+@app.get("/api/tags/complete")
+async def tag_complete(q: str = ""):
+    """Autocomplete endpoint for the tag input. Returns up to 8 existing
+    tag names that start with `q` (case-insensitive)."""
+    try:
+        names = await asyncio.to_thread(db.complete_tag, cfg(), q, 8)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("tag complete failed: %s", exc, exc_info=True)
+        return JSONResponse({"matches": []}, status_code=500)
+    return {"matches": names}
 
 
 @app.get("/c/{name}", response_class=HTMLResponse)
-def list_view(request: Request, name: str, msg: str | None = None, level: str = "ok"):
+def list_view(
+    request: Request,
+    name: str,
+    msg: str | None = None,
+    level: str = "ok",
+    status: str = "all",
+):
     ct = _ct(name)
-    records = db.list_records(cfg(), ct)
+    if status not in VALID_STATUSES:
+        status = "all"
+    status_counts = db.count_by_status(cfg(), ct)
+    records = db.list_records(cfg(), ct, status=status)
+    _annotate_scheduled(records)
     can_syndicate = ct.name in ("microblog", "blog")
     mastodon_enabled = can_syndicate and bool(cfg().mastodon_instance)
     bluesky_enabled = can_syndicate and bool(
         cfg().bluesky_handle and cfg().bluesky_app_password
     )
+    # Annotate records with the social-publish context so the unified
+    # `publish_social_modal` macro can render in-place. Tags are skipped
+    # to avoid an N+1 query per row; the user can add hashtags in the modal.
+    if can_syndicate and (mastodon_enabled or bluesky_enabled):
+        for r in records:
+            draft, img, alt, canon = _social_context(ct.name, r, [])
+            r["_social_draft"] = draft
+            r["_social_image_url"] = img
+            r["_social_image_alt"] = alt
+            r["_social_canonical_url"] = canon
     return templates.TemplateResponse(
         request,
         "list.html",
         {
             "ct": ct,
             "records": records,
+            "status": status,
+            "status_counts": status_counts,
             "flash": msg,
             "flash_level": level,
             "mastodon_enabled": mastodon_enabled,
             "bluesky_enabled": bluesky_enabled,
             "syndication_enabled": mastodon_enabled or bluesky_enabled,
+            "masto_limit": 500,
+            "bsky_limit": 300,
         },
     )
 
@@ -1090,6 +1175,13 @@ def _extract(form, ct: ContentType) -> tuple[dict, list[str], dict[str, str]]:
         values[col] = raw
     tags_raw = form.get("tags", "") or ""
     tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+    # `draft` lives outside the host site's configured INSERT — capture it
+    # explicitly. Checkbox is absent from the form when unchecked.
+    draft_raw = form.get("draft")
+    if isinstance(draft_raw, str):
+        values["draft"] = draft_raw.lower() in ("1", "true", "on", "yes")
+    else:
+        values["draft"] = False
     return values, tags, errors
 
 

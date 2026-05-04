@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status %}
+{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status, publish_social_modal %}
 {% block title %}{{ ct.name }}{% endblock %}
 {% block content %}
 <header class="page-head" data-kicker="Section · {{ ct.name }}">
@@ -11,14 +11,35 @@
   <div class="flash flash-{{ flash_level }}">{{ flash }}</div>
 {% endif %}
 
-{% macro status_cluster(r) %}
-  {% if syndication_enabled %}
-  <span class="status-cluster">
-    {% if mastodon_enabled %}{{ mastodon_status(r) }}{% endif %}
-    {% if bluesky_enabled %}{{ bluesky_status(r) }}{% endif %}
-    {{ webmentions_status(r) }}
-  </span>
+{% if ct.name in ("microblog", "blog", "notes") %}
+  <nav class="tl-status" aria-label="Status">
+    {% for s, label in (("all", "All"), ("published", "Published"), ("drafts", "Drafts"), ("scheduled", "Scheduled")) %}
+      <a class="tl-status-link {{ 'is-active' if status == s else '' }}"
+         href="?status={{ s }}">
+        <span>{{ label }}</span>
+        <span class="tl-status-count">{{ status_counts.get(s, 0) }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+{% endif %}
+
+{% macro state_pill(r) %}
+  {% if r.draft %}
+    <span class="state-pill state-draft" title="Draft">Draft</span>
+  {% elif r._scheduled %}
+    <span class="state-pill state-scheduled" title="Scheduled">Scheduled</span>
   {% endif %}
+{% endmacro %}
+
+{% macro status_cluster(r) %}
+  <span class="status-cluster">
+    {{ state_pill(r) }}
+    {% if syndication_enabled %}
+      {% if mastodon_enabled %}{{ mastodon_status(r) }}{% endif %}
+      {% if bluesky_enabled %}{{ bluesky_status(r) }}{% endif %}
+      {{ webmentions_status(r) }}
+    {% endif %}
+  </span>
 {% endmacro %}
 
 {% if not records %}
@@ -49,17 +70,13 @@
     <footer class="feed-foot">
       <span class="muted">#{{ r.id }} · {{ r.slug or "" }}</span>
       <div class="row-actions">
-        {% if mastodon_enabled and not r.get("mastodon_url") %}
-          <form method="post" action="/c/{{ ct.name }}/{{ r.id }}/mastodon"
-                onsubmit="return confirm('Post this {{ ct.name }} to Mastodon?');">
-            <button type="submit" class="secondary">Post to Mastodon</button>
-          </form>
-        {% endif %}
-        {% if bluesky_enabled and not r.get("bluesky_url") %}
-          <form method="post" action="/c/{{ ct.name }}/{{ r.id }}/bluesky"
-                onsubmit="return confirm('Post this {{ ct.name }} to Bluesky?');">
-            <button type="submit" class="secondary">Post to Bluesky</button>
-          </form>
+        {% if mastodon_enabled or bluesky_enabled %}
+          {{ publish_social_modal(
+               ct.name, r, mastodon_enabled, bluesky_enabled,
+               r.get("_social_draft", ""), r.get("_social_image_url"),
+               r.get("_social_image_alt", ""), r.get("_social_canonical_url", ""),
+               masto_limit, bsky_limit,
+               label="Post →", btn_class="publish-social-btn is-compact") }}
         {% endif %}
         <a href="/c/{{ ct.name }}/{{ r.id }}">Edit</a>
         <form method="post" action="/c/{{ ct.name }}/{{ r.id }}/delete"

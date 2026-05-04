@@ -4,8 +4,6 @@
 {% block content %}
 {% set content_rows = {"microblog": 4, "notes": 10, "blog": 22}.get(ct.name, 10) %}
 {% set desc_rows = {"notes": 3, "blog": 3}.get(ct.name, 2) %}
-{% set show_counter = ct.name == "microblog" %}
-{% set counter_limit = 280 %}
 
 <header class="page-head" data-kicker="{{ 'Drafting' if is_new else 'Revising' }} · {{ ct.name }}">
   <h1>
@@ -91,7 +89,7 @@
 <script id="edit-initial" type="application/json">
   {{ {"slug": record.get("slug") or "",
       "title": record.get("title") or record.get("name") or "",
-      "contentLen": (record.get("content") or "") | length,
+      "description": record.get("description") or "",
       "slugWasSet": record.get("slug") is not none and record.get("slug") != ""} | tojson }}
 </script>
 <script>
@@ -141,10 +139,73 @@
       busy: false,
       msg: "",
       level: "",
+      // Autocomplete state for the input field.
+      completions: [],
+      completeIndex: -1,
+      _completeTimer: null,
       get tags() {
         return this.value.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
       },
       isActive(tag) { return this.tags.includes(tag.toLowerCase()); },
+      // Token under the caret = text after the last comma. We rewrite just
+      // that token when the user picks a completion.
+      _currentToken() {
+        const v = this.value || "";
+        const i = v.lastIndexOf(",");
+        return i < 0 ? v.trim() : v.slice(i + 1).trim();
+      },
+      _replaceCurrentToken(replacement) {
+        const v = this.value || "";
+        const i = v.lastIndexOf(",");
+        const prefix = i < 0 ? "" : v.slice(0, i + 1) + " ";
+        this.value = prefix + replacement + ", ";
+      },
+      onTagInput() {
+        if (this._completeTimer) clearTimeout(this._completeTimer);
+        const token = this._currentToken();
+        if (!token) {
+          this.completions = [];
+          this.completeIndex = -1;
+          return;
+        }
+        this._completeTimer = setTimeout(async () => {
+          try {
+            const r = await fetch("/api/tags/complete?q=" + encodeURIComponent(token));
+            const data = await r.json().catch(() => ({}));
+            // Drop tags already in the value so we don't suggest dupes.
+            const taken = new Set(this.tags);
+            this.completions = (data.matches || []).filter((m) => !taken.has(m));
+            this.completeIndex = this.completions.length ? 0 : -1;
+          } catch (e) {
+            this.completions = [];
+            this.completeIndex = -1;
+          }
+        }, 120);
+      },
+      pickCompletion(name) {
+        this._replaceCurrentToken(name);
+        this.completions = [];
+        this.completeIndex = -1;
+        this.$refs.tagInput && this.$refs.tagInput.focus();
+      },
+      onTagKey(e) {
+        if (!this.completions.length) return;
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          this.completeIndex = (this.completeIndex + 1) % this.completions.length;
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          this.completeIndex = (this.completeIndex - 1 + this.completions.length) % this.completions.length;
+        } else if (e.key === "Enter" || e.key === "Tab") {
+          if (this.completeIndex >= 0) {
+            e.preventDefault();
+            this.pickCompletion(this.completions[this.completeIndex]);
+          }
+        } else if (e.key === "Escape") {
+          this.completions = [];
+          this.completeIndex = -1;
+        }
+      },
       get knownSuggestions() { return this.suggestions.filter((s) => s.known); },
       get newSuggestions() { return this.suggestions.filter((s) => !s.known); },
       setTags(list) {
@@ -197,11 +258,9 @@
             return;
           }
           this.suggestions = data.suggestions || [];
-          const reused = this.suggestions.filter((s) => s.known).length;
-          const fresh = this.suggestions.length - reused;
           this.msg = this.suggestions.length
-            ? `Got ${this.suggestions.length} suggestions (${reused} existing, ${fresh} new). Click to add/remove.`
-            : "No suggestions — try adding more content.";
+            ? `Found ${this.suggestions.length} matching tag(s). Click to add/remove.`
+            : "No matching tags in your library.";
           this.level = this.suggestions.length ? "ok" : "warn";
         } catch (e) {
           this.msg = "Network error: " + e.message;
@@ -336,11 +395,51 @@
     Alpine.data("editForm", () => ({
       slug: initial.slug,
       title: initial.title,
+      description: initial.description,
       slugTouched: initial.slugWasSet,
-      contentLen: initial.contentLen,
       slugSuggesting: false,
       slugSuggestMsg: "",
       slugSuggestLevel: "",
+      descSuggesting: false,
+      descSuggestMsg: "",
+      descSuggestLevel: "",
+      async suggestDescription() {
+        const form = this.$root.closest("form") || this.$root;
+        const pick = (sel) => {
+          const el = form.querySelector(sel);
+          return el && el.value ? el.value.trim() : "";
+        };
+        const title = this.title || pick('[name="title"]') || pick('[name="name"]');
+        const body = pick('[name="content"]');
+        const src = [title, body].filter(Boolean).join("\n\n");
+        if (!src) {
+          this.descSuggestMsg = "Add a title or content first.";
+          this.descSuggestLevel = "err";
+          return;
+        }
+        this.descSuggesting = true;
+        this.descSuggestMsg = "";
+        this.descSuggestLevel = "";
+        try {
+          const fd = new FormData();
+          fd.append("text", src);
+          const r = await fetch("/api/ai/description", { method: "POST", body: fd });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || !data.description) {
+            this.descSuggestMsg = data.error || `Request failed (${r.status})`;
+            this.descSuggestLevel = "err";
+            return;
+          }
+          this.description = data.description;
+          this.descSuggestMsg = "Generated via Ollama. Edit as needed.";
+          this.descSuggestLevel = "ok";
+        } catch (e) {
+          this.descSuggestMsg = "Network error: " + e.message;
+          this.descSuggestLevel = "err";
+        } finally {
+          this.descSuggesting = false;
+        }
+      },
       async suggestSlug() {
         // Prefer the title if filled; otherwise pull from content/description.
         const form = this.$root.closest("form") || this.$root;
@@ -427,20 +526,29 @@
              @drop="onDrop($event)">
           <textarea name="content" rows="{{ content_rows }}"
                     @paste="onPaste($event)"
-                    {% if show_counter %}x-on:input="contentLen = $event.target.value.length"{% endif %}
           >{{ val or "" }}</textarea>
           <small class="drop-hint" x-text="status || 'Drop or paste an image to upload'"
                  :class="level ? 'drop-' + level : ''"></small>
         </div>
-        {% if show_counter %}
-          <small class="muted counter"
-                 :class="contentLen > {{ counter_limit }} ? 'over' : ''">
-            <span x-text="contentLen"></span> / {{ counter_limit }}
-          </small>
-        {% endif %}
 
       {% elif col == "description" %}
-        <textarea name="description" rows="{{ desc_rows }}">{{ val or "" }}</textarea>
+        <div class="desc-row">
+          <textarea name="description" rows="{{ desc_rows }}"
+                    x-model="description"></textarea>
+          <button type="button" class="secondary ai-btn"
+                  :disabled="descSuggesting"
+                  @click="suggestDescription()"
+                  :title="descSuggesting ? 'Thinking…' : 'Suggest description (AI)'"
+                  aria-label="Suggest description">
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M12 2.5l1.8 4.7 4.7 1.8-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.8z"/>
+              <path fill="currentColor" opacity="0.55" d="M18 14l.9 2.3 2.3.9-2.3.9L18 20.4l-.9-2.3-2.3-.9 2.3-.9z"/>
+            </svg>
+          </button>
+        </div>
+        <small class="slug-hint muted" x-show="descSuggestMsg"
+               :class="descSuggestLevel ? 'slug-' + descSuggestLevel : ''"
+               x-text="descSuggestMsg"></small>
 
       {% elif col == "date" %}
         <div class="date-row">
@@ -522,17 +630,42 @@
     </label>
   {% endfor %}
 
+  {% if ct.name in ("microblog", "blog", "notes") %}
+    <label class="draft-toggle">
+      <input type="checkbox" name="draft" value="1"
+             {% if record.get("draft") %}checked{% endif %}>
+      <span>Save as draft</span>
+      <small class="muted">
+        Drafts and posts dated in the future are skipped by the published feed.
+      </small>
+    </label>
+  {% endif %}
+
   {% if ct.has_tags %}
     <label x-data="tagSuggest"
            x-init="value = {{ (tags | join(', ')) | tojson }}">
       <span>tags (comma-separated)</span>
       <div class="tags-row">
-        <input type="text" name="tags" x-model="value" x-ref="tagInput">
+        <div class="tag-input-wrap">
+          <input type="text" name="tags" x-model="value" x-ref="tagInput"
+                 autocomplete="off"
+                 @input="onTagInput()"
+                 @keydown="onTagKey($event)"
+                 @blur="setTimeout(() => { completions = []; completeIndex = -1 }, 120)">
+          <ul class="tag-complete" x-show="completions.length" x-cloak>
+            <template x-for="(name, i) in completions" :key="name">
+              <li class="tag-complete-item"
+                  :class="i === completeIndex ? 'is-active' : ''"
+                  @mousedown.prevent="pickCompletion(name)"
+                  x-text="name"></li>
+            </template>
+          </ul>
+        </div>
         <button type="button" class="secondary ai-btn"
                 :disabled="busy"
                 @click="suggest()"
-                :title="busy ? 'Thinking…' : 'Suggest tags (AI)'"
-                aria-label="Suggest tags">
+                :title="busy ? 'Searching…' : 'Suggest from library'"
+                aria-label="Suggest from library">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
             <path fill="currentColor" d="M12 2.5l1.8 4.7 4.7 1.8-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.8z"/>
             <path fill="currentColor" opacity="0.55" d="M18 14l.9 2.3 2.3.9-2.3.9L18 20.4l-.9-2.3-2.3-.9 2.3-.9z"/>

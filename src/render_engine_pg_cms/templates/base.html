@@ -98,23 +98,40 @@
         processed: 0,
         total_expected: 0,
         _timer: null,
+        _schedule(ms) {
+          clearTimeout(this._timer);
+          // Don't poll while the tab is hidden — caller will re-poll on
+          // visibilitychange when the user comes back.
+          if (document.hidden) return;
+          this._timer = setTimeout(() => this.poll(), ms);
+        },
         async poll() {
           try {
             const r = await fetch("/webmentions/status", { headers: { "accept": "application/json" } });
-            if (!r.ok) return;
+            if (!r.ok) return this._schedule(60000);
             const s = await r.json();
             this.running = s.running;
             this.finished_at = s.finished_at;
             this.changed = s.changed || 0;
             this.processed = s.processed || 0;
             this.total_expected = s.total_expected || 0;
-            // Faster cadence while a sync is live.
-            const next = s.running ? 1500 : 5000;
-            clearInterval(this._timer);
-            this._timer = setInterval(() => this.poll(), next);
-          } catch (_) {}
+            // Tight cadence only while a sync is live; otherwise idle for
+            // 2 minutes between local-status checks.
+            this._schedule(s.running ? 1500 : 120000);
+          } catch (_) {
+            this._schedule(60000);
+          }
         },
-        start() { this.poll(); },
+        start() {
+          this.poll();
+          document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+              clearTimeout(this._timer);
+            } else {
+              this.poll();
+            }
+          });
+        },
       }));
     });
     const _escapeHtml = (s) => s
@@ -251,7 +268,7 @@
         async poll() {
           try {
             const r = await fetch("/publish/status", { headers: { "accept": "application/json" } });
-            if (!r.ok) return this._schedule(15000);
+            if (!r.ok) return this._schedule(this._idleMs());
             const s = await r.json();
             this.configured = s.configured !== false;
             const wasRunning = this.running;
@@ -272,16 +289,30 @@
             } else if (!this.configured) {
               this.titleText = "Set GITHUB_TOKEN and GITHUB_REPO to enable publishing";
             }
-            this._schedule(15000);
+            // 15s while a workflow is in flight; 5 minutes otherwise. Each
+            // poll hits the GitHub API server-side, so flat 15s polling
+            // burns the rate limit on tabs left open all day.
+            this._schedule(this.running ? 15000 : 300000);
           } catch (_) {
-            this._schedule(15000);
+            this._schedule(this._idleMs());
           }
         },
+        _idleMs() { return this.running ? 15000 : 300000; },
         _schedule(ms) {
           clearTimeout(this._timer);
+          if (document.hidden) return;  // resumes via visibilitychange below
           this._timer = setTimeout(() => this.poll(), ms);
         },
-        start() { this.poll(); },
+        start() {
+          this.poll();
+          document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+              clearTimeout(this._timer);
+            } else {
+              this.poll();
+            }
+          });
+        },
       }));
     });
   </script>

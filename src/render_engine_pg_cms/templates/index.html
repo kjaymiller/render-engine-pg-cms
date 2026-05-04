@@ -33,6 +33,16 @@
 </header>
 
 <div x-data="timeline()" class="timeline">
+  <nav class="tl-status" aria-label="Status">
+    {% for s, label in (("all", "All"), ("published", "Published"), ("drafts", "Drafts"), ("scheduled", "Scheduled")) %}
+      <a class="tl-status-link {{ 'is-active' if status == s else '' }}"
+         href="?status={{ s }}">
+        <span>{{ label }}</span>
+        <span class="tl-status-count">{{ status_counts.get(s, 0) }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+
   <div class="tl-filters" role="tablist">
     <button type="button" role="tab"
             class="tl-filter" :class="filter === 'all' ? 'is-active' : ''"
@@ -79,6 +89,11 @@
               </a>
             </h3>
             <span class="status-cluster">
+              {% if r.draft %}
+                <span class="state-pill state-draft" title="Draft">Draft</span>
+              {% elif r._scheduled %}
+                <span class="state-pill state-scheduled" title="Scheduled">Scheduled</span>
+              {% endif %}
               {% if r._type in ("microblog", "blog") %}
                 {% if mastodon_enabled or bluesky_enabled %}
                   {{ publish_social_modal(
