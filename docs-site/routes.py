@@ -47,7 +47,7 @@ class Index(Page):
 
 @app.collection
 class Docs(Collection):
-    """One page per markdown file in ../docs."""
+    """Top-level pages in ../docs (e.g. index.md)."""
     Parser = MarkdownPageParser
     parser_extras = {"markdown_extras": markdown_extras}
     content_path = str(REPO_ROOT / "docs")
@@ -56,3 +56,51 @@ class Docs(Collection):
     has_archive = True
     archive_template = "docs_archive.html"
     archive_title = "Documentation"
+
+
+@app.collection
+class Tutorials(Collection):
+    Parser = MarkdownPageParser
+    parser_extras = {"markdown_extras": markdown_extras}
+    content_path = str(REPO_ROOT / "docs" / "tutorials")
+    template = "doc.html"
+    routes = ["docs/tutorials"]
+    has_archive = True
+    archive_template = "docs_archive.html"
+    archive_title = "Tutorials"
+
+
+@app.collection
+class HowTo(Collection):
+    Parser = MarkdownPageParser
+    parser_extras = {"markdown_extras": markdown_extras}
+    content_path = str(REPO_ROOT / "docs" / "how-to")
+    template = "doc.html"
+    routes = ["docs/how-to"]
+    has_archive = True
+    archive_template = "docs_archive.html"
+    archive_title = "How-to guides"
+
+
+@app.collection
+class Reference(Collection):
+    Parser = MarkdownPageParser
+    parser_extras = {"markdown_extras": markdown_extras}
+    content_path = str(REPO_ROOT / "docs" / "reference")
+    template = "doc.html"
+    routes = ["docs/reference"]
+    has_archive = True
+    archive_template = "docs_archive.html"
+    archive_title = "Reference"
+
+
+@app.collection
+class Explanation(Collection):
+    Parser = MarkdownPageParser
+    parser_extras = {"markdown_extras": markdown_extras}
+    content_path = str(REPO_ROOT / "docs" / "explanation")
+    template = "doc.html"
+    routes = ["docs/explanation"]
+    has_archive = True
+    archive_template = "docs_archive.html"
+    archive_title = "Explanation"

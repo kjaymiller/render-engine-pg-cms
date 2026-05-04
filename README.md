@@ -3,11 +3,11 @@
 A lightweight FastAPI CMS for [render-engine](https://github.com/render-engine/render-engine) sites backed by the PostgreSQL collection plugin. Content types, columns, insert, and read SQL are all read from the site's `pyproject.toml` (`[tool.render-engine.pg]`) — adding a new content type to the site makes it available in the CMS automatically.
 
 **What it does on top of basic CRUD:**
-- Syndicates posts to [Mastodon](docs/syndication.md) and [Bluesky](docs/syndication.md) from a single modal, with a canonical-URL append toggle.
-- Tracks [webmentions](docs/webmentions.md) from bridgy with a live-progress sync log, per-type breakdown (♥ / 🔁 / 💬), and auto-refresh.
-- Drag-and-drop [image uploads](docs/uploads.md) to Azure Blob Storage with server-side resize + WebP/JPEG re-encoding.
-- [AI slug and tag suggestions](docs/ai.md) from a local Ollama server.
-- [Auto-publish](docs/publishing.md) via GitHub Actions on save, with trailing-edge debounce.
+- Syndicates posts to [Mastodon](docs/how-to/syndicate-to-mastodon.md) and [Bluesky](docs/how-to/syndicate-to-bluesky.md) from a single modal, with a canonical-URL append toggle.
+- Tracks [webmentions](docs/how-to/sync-webmentions.md) from bridgy with a live-progress sync log, per-type breakdown (♥ / 🔁 / 💬), and auto-refresh.
+- Drag-and-drop [image uploads](docs/how-to/upload-images.md) to Azure Blob Storage with server-side resize + WebP/JPEG re-encoding.
+- [AI slug and tag suggestions](docs/explanation/ai-suggestions.md) from a local Ollama server.
+- [Auto-publish](docs/how-to/trigger-a-publish.md) via GitHub Actions on save, with trailing-edge debounce.
 
 ## Quick start
 
@@ -22,16 +22,33 @@ just dev                      # http://localhost:8000
 
 ## Documentation
 
-- **[Configuration](docs/configuration.md)** — every env var in one place.
-- **[Content types](docs/content-types.md)** — how pyproject.toml drives the CMS.
-- **[Publishing](docs/publishing.md)** — manual trigger, auto-publish, debounce rules.
-- **[Syndication](docs/syndication.md)** — Mastodon + Bluesky, draft + send, append-URL toggle.
-- **[Webmentions](docs/webmentions.md)** — bridgy setup, sync loop, per-record refresh.
-- **[Image uploads](docs/uploads.md)** — Azure Blob + Pillow optimization + drag/drop UX.
-- **[AI suggestions](docs/ai.md)** — Ollama-backed slug + tag generators.
-- **[HTTP API](docs/api.md)** — non-CRUD endpoints for automation.
-- **[Database migrations](docs/migrations.md)** — SQL files in `sql/` and how to apply them.
-- **[Extension](docs/extension.md)** — the Firefox/Zen quick-capture add-on.
+The docs are organized by [Diátaxis](https://diataxis.fr/). Start at [docs/index.md](docs/index.md) for the full map.
+
+**Tutorials**
+- [Your first post](docs/tutorials/first-post.md) — install → write → publish.
+
+**How-to guides**
+- [Add a content type](docs/how-to/add-a-content-type.md)
+- [Syndicate to Mastodon](docs/how-to/syndicate-to-mastodon.md) · [Bluesky](docs/how-to/syndicate-to-bluesky.md)
+- [Sync webmentions](docs/how-to/sync-webmentions.md)
+- [Upload images](docs/how-to/upload-images.md)
+- [Trigger a publish](docs/how-to/trigger-a-publish.md)
+- [Apply a migration](docs/how-to/apply-a-migration.md)
+- [Install the extension](docs/how-to/install-the-extension.md)
+
+**Reference**
+- [Configuration (env vars)](docs/reference/configuration.md)
+- [pyproject.toml schema](docs/reference/pyproject-schema.md)
+- [HTTP API](docs/reference/http-api.md)
+- [CLI recipes](docs/reference/cli-recipes.md)
+- [Database schema](docs/reference/database-schema.md)
+
+**Explanation**
+- [Architecture](docs/explanation/architecture.md)
+- [Publishing model](docs/explanation/publishing-model.md)
+- [Syndication model](docs/explanation/syndication-model.md)
+- [AI suggestions](docs/explanation/ai-suggestions.md)
+- [Webmention pipeline](docs/explanation/webmention-pipeline.md)
 
 ## Repo layout
 
