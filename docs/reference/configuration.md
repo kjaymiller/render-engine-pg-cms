@@ -14,6 +14,12 @@ The CMS reads configuration from environment variables plus the site's `pyprojec
 | `CONNECTION_STRING` | PostgreSQL DSN — same one the render-engine site uses.                | —                      |
 | `SITE_PYPROJECT`    | Absolute path to the site's `pyproject.toml`.                         | `./pyproject.toml`     |
 
+## JSON API auth
+
+| Variable        | Purpose                                                                                                       | Default |
+| --------------- | ------------------------------------------------------------------------------------------------------------- | ------- |
+| `CMS_API_TOKEN` | Bearer token required by `/api/v1/*`. Unset = the JSON API returns 503 on every call. Generate with `openssl rand -hex 32`. | —       |
+
 ## GitHub (Publish button + auto-publish)
 
 | Variable                       | Purpose                                                  | Default       |

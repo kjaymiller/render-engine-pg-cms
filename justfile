@@ -7,6 +7,7 @@ webmention_secret := "op://Private/Webmention.io/credential"
 bluesky_secret := "op://Private/bluesky/app password"
 github_secret := "op://Private/GH-PAT - Kjaymiller.com PG CMS/credential"
 azure_secret := "op://Private/Azure Storage Connection String/credential"
+cms_api_secret := "op://Private/kjaymiller-com-cms-api/credential"
 
 default:
     @just --list
@@ -25,6 +26,7 @@ dev host="127.0.0.1" port="8000":
     export BLUESKY_APP_PASSWORD="$(op read '{{bluesky_secret}}')"
     export GITHUB_TOKEN="$(op read '{{github_secret}}')"
     export AZURE_STORAGE_CONNECTION_STRING="$(op read '{{azure_secret}}')"
+    export CMS_API_TOKEN="$(op read '{{cms_api_secret}}')"
     uv run uvicorn render_engine_pg_cms.main:app --reload --host {{host}} --port {{port}}
 
 # Backfill webmention counts for all existing microblog + blog rows.
@@ -79,6 +81,29 @@ docs:
 # Serve the built docs over HTTP for local preview
 docs-serve port="8001":
     cd docs-site/output && python -m http.server {{port}}
+
+# Generate a fresh CMS_API_TOKEN and store it in 1Password at {{cms_api_secret}}.
+# Updates the existing item if present, creates it (Password category) otherwise.
+# Restart `just dev` afterwards so the new value is picked up.
+rotate-api-token:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    token="$(openssl rand -hex 32)"
+    ref="{{cms_api_secret}}"
+    # ref looks like op://<vault>/<item>/<field> — split it.
+    rest="${ref#op://}"
+    vault="${rest%%/*}"
+    rest="${rest#*/}"
+    item="${rest%%/*}"
+    field="${rest#*/}"
+    if op item get "$item" --vault "$vault" >/dev/null 2>&1; then
+        op item edit "$item" --vault "$vault" "$field=$token" >/dev/null
+        echo "→ updated $ref"
+    else
+        op item create --category=password --vault "$vault" --title "$item" "$field=$token" >/dev/null
+        echo "→ created $ref"
+    fi
+    echo "→ token length: ${#token} chars"
 
 # Package the Firefox/Zen extension into a loadable .xpi
 extension:

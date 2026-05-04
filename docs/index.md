@@ -23,6 +23,7 @@ Goal-oriented instructions for things you already know you want to do.
 - [Sync webmentions](how-to/sync-webmentions.md)
 - [Upload images](how-to/upload-images.md)
 - [Trigger a publish](how-to/trigger-a-publish.md)
+- [Use the JSON API](how-to/use-the-json-api.md)
 - [Apply a database migration](how-to/apply-a-migration.md)
 - [Install the browser extension](how-to/install-the-extension.md)
 

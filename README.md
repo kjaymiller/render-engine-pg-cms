@@ -33,6 +33,7 @@ The docs are organized by [Diátaxis](https://diataxis.fr/). Start at [docs/inde
 - [Sync webmentions](docs/how-to/sync-webmentions.md)
 - [Upload images](docs/how-to/upload-images.md)
 - [Trigger a publish](docs/how-to/trigger-a-publish.md)
+- [Use the JSON API](docs/how-to/use-the-json-api.md)
 - [Apply a migration](docs/how-to/apply-a-migration.md)
 - [Install the extension](docs/how-to/install-the-extension.md)
 
@@ -54,7 +55,8 @@ The docs are organized by [Diátaxis](https://diataxis.fr/). Start at [docs/inde
 
 ```
 src/render_engine_pg_cms/
-  main.py              FastAPI app + all routes
+  main.py              FastAPI app + browser-facing routes
+  api.py               JSON REST API under /api/v1 (bearer-token auth)
   config.py            env + pyproject loading
   db.py                psycopg helpers
   webmention.py        webmention.io client + sync loop

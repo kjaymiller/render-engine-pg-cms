@@ -300,6 +300,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="render-engine-pg-cms", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
+from .api import router as api_router  # noqa: E402 — avoid circular at import time
+app.include_router(api_router)
+
 SKIP_COLUMNS = {"id", "created_at", "updated_at"}
 # Columns we treat as required when present on a content type.
 LIKELY_REQUIRED = {"slug", "title", "name", "content"}
