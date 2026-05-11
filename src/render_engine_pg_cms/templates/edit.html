@@ -8,6 +8,9 @@
 <header class="page-head" data-kicker="{{ 'Drafting' if is_new else 'Revising' }} · {{ ct.name }}">
   <h1>
     {{ "New" if is_new else "Edit" }} <em>{{ ct.name }}</em>
+    {% if not is_new and record.get("draft") %}
+      <span class="state-pill state-draft" title="Draft">Draft</span>
+    {% endif %}
     {% if (has_mastodon or has_bluesky) and not is_new %}
       <span class="status-cluster">
         {% if has_mastodon %}{{ mastodon_status(record) }}{% endif %}
@@ -392,6 +395,40 @@
       },
     }));
 
+    // Live markdown preview alongside the content textarea. The textarea owns
+    // the form value via x-model on `src`; we compute `html` from it through
+    // `marked`. Microblog uses a tweet-shaped preview; longer types render
+    // as an article.
+    // Preview lives in its own collapsible block, but reads its source from
+    // the form's content textarea via a DOM listener so the form keeps
+    // ownership of the field value.
+    Alpine.data("mdPreview", (kind, initial) => ({
+      kind: kind,
+      src: initial || "",
+      open: localStorage.getItem("renderpg-preview-open") !== "0",
+      init() {
+        const ta = document.querySelector('textarea[name="content"]');
+        if (ta) {
+          this.src = ta.value || this.src;
+          ta.addEventListener("input", (e) => { this.src = e.target.value; });
+        }
+      },
+      toggle() {
+        this.open = !this.open;
+        localStorage.setItem("renderpg-preview-open", this.open ? "1" : "0");
+      },
+      get html() {
+        const m = window.marked;
+        if (!m) return "";
+        const text = this.src || "";
+        try {
+          return m.parse(text, { breaks: this.kind === "microblog", gfm: true });
+        } catch (_) {
+          return "";
+        }
+      },
+    }));
+
     Alpine.data("editForm", () => ({
       slug: initial.slug,
       title: initial.title,
@@ -510,8 +547,9 @@
   });
 </script>
 
-<form method="post" class="record-form" novalidate x-data="editForm">
-  {% for col in ct.primary_columns if col not in ("id", "created_at", "updated_at") %}
+<div class="edit-layout {% if 'content' in ct.primary_columns %}has-preview{% endif %}">
+<form method="post" class="record-form edit-layout-form" novalidate x-data="editForm">
+  {% for col in ct.primary_columns if col not in ("id", "created_at", "updated_at", "draft") %}
     {% set val = record.get(col, "") if record else "" %}
     {% set err = errors.get(col) %}
     <label class="{{ 'has-error' if err else '' }}">
@@ -610,7 +648,7 @@
 
       {% elif col == "location" %}
         <div class="geo-row" x-data="geoLookup"
-             x-init="q = {{ (val or '') | tojson }}">
+             x-init='q = {{ (val or "") | tojson }}'>
           <input type="text" name="location"
                  x-model="q"
                  placeholder="City, region, country"
@@ -643,7 +681,7 @@
 
   {% if ct.has_tags %}
     <label x-data="tagSuggest"
-           x-init="value = {{ (tags | join(', ')) | tojson }}">
+           x-init='value = {{ (tags | join(", ")) | tojson }}'>
       <span>tags (comma-separated)</span>
       <div class="tags-row">
         <div class="tag-input-wrap">
@@ -671,6 +709,17 @@
             <path fill="currentColor" opacity="0.55" d="M18 14l.9 2.3 2.3.9-2.3.9L18 20.4l-.9-2.3-2.3-.9 2.3-.9z"/>
           </svg>
         </button>
+      </div>
+      <div class="current-tags" x-show="tags.length" x-cloak>
+        <small class="tag-group-label muted">Current tags · click to remove</small>
+        <div class="tag-group-chips">
+          <template x-for="t in tags" :key="'cur-' + t">
+            <button type="button" class="tag-chip is-known is-active"
+                    @click="toggle(t)"
+                    :title="'Remove ' + t"
+                    x-text="t + ' ×'"></button>
+          </template>
+        </div>
       </div>
       <small class="slug-hint muted" x-show="msg"
              :class="level ? 'slug-' + level : ''"
@@ -708,4 +757,37 @@
 
   <button type="submit">{{ "Create" if is_new else "Save" }}</button>
 </form>
+
+{% if "content" in ct.primary_columns %}
+<aside class="edit-layout-aside">
+<section class="md-preview-block md-preview-{{ ct.name }}"
+         x-data='mdPreview("{{ ct.name }}", {{ (record.get("content") or "") | tojson }})'
+         :class="open ? '' : 'is-collapsed'">
+  <header class="md-preview-head">
+    <span class="md-preview-label">Preview</span>
+    <button type="button" class="md-preview-toggle secondary"
+            @click="toggle()"
+            :aria-expanded="open ? 'true' : 'false'"
+            x-text="open ? 'Hide' : 'Show'"></button>
+  </header>
+  <div class="md-preview-body" x-show="open" x-cloak>
+    {% if ct.name == "microblog" %}
+      <div class="tweet-card">
+        <div class="tweet-card-head">
+          <div class="tweet-avatar" aria-hidden="true"></div>
+          <div class="tweet-meta">
+            <strong class="tweet-name">You</strong>
+            <span class="tweet-handle">@you · now</span>
+          </div>
+        </div>
+        <div class="tweet-body" x-html='html || "<span class=\"md-empty\">Start typing to preview…</span>"'></div>
+      </div>
+    {% else %}
+      <article class="md-article" x-html='html || "<p class=\"md-empty\">Start typing to preview…</p>"'></article>
+    {% endif %}
+  </div>
+</section>
+</aside>
+{% endif %}
+</div>
 {% endblock %}

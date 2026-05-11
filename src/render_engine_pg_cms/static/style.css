@@ -1143,6 +1143,153 @@ button.secondary.ai-btn:hover {
 }
 .tag-chip.is-active:hover { background: var(--poppy); border-color: var(--poppy); }
 
+.current-tags {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+/* ───────── Edit layout: form + side preview ────────────────── */
+
+.edit-layout { display: block; }
+.edit-layout > .edit-layout-form { width: 100%; }
+
+/* On pages with a side-by-side preview, widen the main column so both
+   panes get real estate. Other pages keep the narrower 1040px column. */
+main:has(.edit-layout.has-preview) { max-width: 1500px; }
+
+@media (min-width: 1100px) {
+  .edit-layout.has-preview {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.75rem;
+    align-items: start;
+  }
+  .edit-layout.has-preview > .edit-layout-form { max-width: none; margin-top: 1.5rem; }
+  .edit-layout-aside {
+    position: sticky;
+    top: 1.25rem;
+    margin-top: 1.5rem;
+    /* Fill the viewport so the preview can be a tall reading column. */
+    height: calc(100vh - 2.5rem);
+    display: flex;
+  }
+  .edit-layout-aside > .md-preview-block {
+    display: flex; flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .edit-layout-aside .md-preview-body {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+  }
+}
+
+/* ───────── Markdown live preview block ─────────────────────── */
+
+.md-preview-block {
+  margin: 0;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+.md-preview-block.is-collapsed { box-shadow: none; }
+.md-preview-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+.md-preview-block.is-collapsed .md-preview-head { border-bottom: none; }
+.md-preview-label {
+  font-family: var(--mono); font-size: 0.68rem;
+  color: var(--ink-mute); letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.md-preview-toggle {
+  font-size: 0.78rem;
+  padding: 0.3rem 0.7rem;
+}
+.md-preview-body {
+  padding: 1rem 1.1rem;
+  max-height: 28rem;
+  overflow: auto;
+}
+.md-empty { color: var(--ink-mute); font-style: italic; }
+
+.md-article {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 1rem; line-height: 1.65;
+  color: var(--ink);
+}
+.md-article > :first-child { margin-top: 0; }
+.md-article > :last-child { margin-bottom: 0; }
+.md-article h1, .md-article h2, .md-article h3,
+.md-article h4, .md-article h5, .md-article h6 {
+  font-family: var(--display, var(--sans));
+  line-height: 1.2;
+  margin: 1.2em 0 0.5em;
+}
+.md-article h1 { font-size: 1.6rem; }
+.md-article h2 { font-size: 1.35rem; }
+.md-article h3 { font-size: 1.15rem; }
+.md-article p, .md-article ul, .md-article ol, .md-article blockquote {
+  margin: 0.6em 0;
+}
+.md-article a { color: var(--clay); text-decoration: underline; }
+.md-article code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  padding: 0.1em 0.35em; border-radius: 4px;
+}
+.md-article pre {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius);
+  overflow: auto;
+}
+.md-article pre code { background: transparent; padding: 0; }
+.md-article blockquote {
+  border-left: 3px solid var(--rule);
+  padding-left: 0.85rem;
+  color: var(--ink-mute);
+}
+.md-article img { max-width: 100%; height: auto; border-radius: var(--radius); }
+
+/* Microblog: tweet-shaped card so the author can eyeball how it'll read on
+   social. Visual only — the actual social composer lives elsewhere. */
+.tweet-card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  padding: 0.95rem 1.1rem;
+  display: flex; flex-direction: column; gap: 0.65rem;
+  font-family: var(--sans, system-ui, sans-serif);
+}
+.tweet-card-head { display: flex; align-items: center; gap: 0.65rem; }
+.tweet-avatar {
+  width: 2.4rem; height: 2.4rem; border-radius: 50%;
+  background: linear-gradient(135deg, var(--clay), color-mix(in srgb, var(--clay) 50%, var(--paper-2)));
+  flex: 0 0 auto;
+}
+.tweet-meta { display: flex; flex-direction: column; line-height: 1.2; }
+.tweet-name { font-size: 0.95rem; color: var(--ink); }
+.tweet-handle { font-size: 0.82rem; color: var(--ink-mute); }
+.tweet-body {
+  font-size: 1.02rem; line-height: 1.5; color: var(--ink);
+  white-space: normal;
+}
+.tweet-body > :first-child { margin-top: 0; }
+.tweet-body > :last-child { margin-bottom: 0; }
+.tweet-body p { margin: 0.35em 0; }
+.tweet-body a { color: #1d9bf0; text-decoration: none; }
+.tweet-body a:hover { text-decoration: underline; }
+.tweet-body img { max-width: 100%; height: auto; border-radius: 12px; margin-top: 0.5rem; }
+
 /* ───────── Drag-and-drop image upload zones ────────────────── */
 
 .drop-zone {
@@ -1386,8 +1533,30 @@ a.status:hover { transform: translateY(-1px) scale(1.05); filter: saturate(1.2);
   border-radius: 8px;
   background: var(--paper-2);
 }
-.draft-toggle input[type="checkbox"] { margin: 0; }
-.draft-toggle small { flex-basis: 100%; }
+.draft-toggle input[type="checkbox"] {
+  /* Override .record-form input padding/sizing so the checkbox is checkbox-sized. */
+  appearance: auto;
+  width: 1rem; height: 1rem;
+  padding: 0; margin: 0;
+  background: transparent;
+  border: none; border-radius: 0;
+  font-size: inherit;
+  accent-color: var(--clay);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.draft-toggle input[type="checkbox"]:focus {
+  outline: 2px solid var(--clay);
+  outline-offset: 2px;
+  box-shadow: none;
+  background: transparent;
+}
+.record-form .draft-toggle > span {
+  font-family: var(--sans); font-size: 0.95rem;
+  letter-spacing: 0; text-transform: none;
+  color: var(--ink); font-weight: 500;
+}
+.draft-toggle small { flex-basis: 100%; color: var(--ink-mute); }
 
 .tl-filters {
   display: flex; flex-wrap: wrap; gap: 0.5rem;
