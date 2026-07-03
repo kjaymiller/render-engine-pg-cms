@@ -738,18 +738,41 @@ def quick_picker(url: str = "", title: str = ""):
 
 
 @app.get("/c/{name}/new", response_class=HTMLResponse)
-def new_form(request: Request, name: str, url: str = "", title: str = ""):
+def new_form(
+    request: Request,
+    name: str,
+    url: str = "",
+    title: str = "",
+    slug: str = "",
+    content: str = "",
+    external_link: str = "",
+    image_url: str = "",
+):
+    """Render an empty create form, optionally pre-filled from query params.
+
+    Every prefill is applied only when the content type actually has that
+    column, so the same params work for any type (microblog, blog, etc.).
+    `url` is a backwards-compatible alias for `external_link`. `slug` is
+    slugified; when omitted it's derived from the title or the link host.
+    """
     ct = _ct(name)
+    cols = ct.primary_columns
     record: dict = {}
-    if url and "external_link" in ct.primary_columns:
-        record["external_link"] = url
-    if title and "title" in ct.primary_columns:
+
+    link = external_link or url
+    if link and "external_link" in cols:
+        record["external_link"] = link
+    if title and "title" in cols:
         record["title"] = title
-    if "slug" in ct.primary_columns:
-        slug_src = title or (urlparse(url).hostname if url else "")
+    if content and "content" in cols:
+        record["content"] = content
+    if image_url and "image_url" in cols:
+        record["image_url"] = image_url
+    if "slug" in cols:
+        slug_src = slug or title or (urlparse(link).hostname if link else "")
         if slug_src:
             record["slug"] = _slugify(slug_src)
-    if "date" in ct.primary_columns and "date" not in record:
+    if "date" in cols and "date" not in record:
         record["date"] = datetime.now()
     return _render_edit(request, ct, record=record, tags=[], is_new=True)
 
