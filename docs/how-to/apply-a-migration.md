@@ -10,20 +10,20 @@ The CMS doesn't own the schema — the render-engine site does — but a few fea
 ## Run an existing migration
 
 ```bash
-just load-sql sql/<file>.sql
+mise run load-sql sql/<file>.sql
 ```
 
-Under the hood: `psql "$CONNECTION_STRING" -f <file>`, with the DSN pulled from 1Password.
+Under the hood: `psql "$CONNECTION_STRING" -f <file>`, with the DSN injected from fnox (age-encrypted).
 
 For the list of migrations and what each adds, see [reference/database-schema.md](../reference/database-schema.md).
 
 ## Bootstrap order for a new install
 
 ```bash
-just load-sql sql/mastodon_migration.sql
-just load-sql sql/bluesky_migration.sql
-just load-sql sql/webmentions_migration.sql
-just load-sql sql/webmention_types_migration.sql
+mise run load-sql sql/mastodon_migration.sql
+mise run load-sql sql/bluesky_migration.sql
+mise run load-sql sql/webmentions_migration.sql
+mise run load-sql sql/webmention_types_migration.sql
 ```
 
 All migrations are `IF NOT EXISTS`-guarded — safe to re-run in any order.
@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_foo ON microblog (my_column);
 Then:
 
 ```bash
-just load-sql sql/my_feature_migration.sql
+mise run load-sql sql/my_feature_migration.sql
 ```
 
 ## Don't forget pyproject.toml

@@ -16,7 +16,7 @@ A tiny WebExtension under `extension/` adds a toolbar button. Click it on any pa
 ## Packaged `.xpi`
 
 ```bash
-just extension
+mise run extension
 ```
 
 Produces `pg-cms-quick-capture.xpi` at the repo root. In Zen: `about:debugging` → **Load Temporary Add-on** → select the `.xpi`.

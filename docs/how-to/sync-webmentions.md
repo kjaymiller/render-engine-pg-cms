@@ -18,8 +18,8 @@ WEBMENTION_URL_TEMPLATE={base}/{type}/{slug}.html   # default; trailing-slash si
 Apply the migrations:
 
 ```bash
-just load-sql sql/webmentions_migration.sql        # webmentions_count, webmentions_synced_at
-just load-sql sql/webmention_types_migration.sql   # webmentions_types jsonb
+mise run load-sql sql/webmentions_migration.sql        # webmentions_count, webmentions_synced_at
+mise run load-sql sql/webmention_types_migration.sql   # webmentions_types jsonb
 ```
 
 ## Sync the whole site
@@ -27,7 +27,7 @@ just load-sql sql/webmention_types_migration.sql   # webmentions_types jsonb
 Three equivalent ways:
 
 - **UI**: visit `/webmentions` → **Sync now**. Watch live progress.
-- **CLI**: `just sync-webmentions`.
+- **CLI**: `mise run sync-webmentions`.
 - **API**: `POST /webmentions/sync` (use `Accept: application/json` for automation).
 
 Manual syncs hit every syndicated record, ignoring the age filter.

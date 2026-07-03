@@ -13,10 +13,10 @@ The `/api/v1/` surface lets external tools (shell scripts, AI agents, browser ex
 openssl rand -hex 32
 ```
 
-Add it to your `.env` (or 1Password/secret manager):
+Store it in fnox (age-encrypted) — or run `mise run rotate-api-token`, which generates and stores one for you:
 
-```
-CMS_API_TOKEN=<the value you just generated>
+```bash
+printf '%s' "<the value you just generated>" | fnox set CMS_API_TOKEN -p age
 ```
 
 Restart the server. Without `CMS_API_TOKEN` set, every `/api/v1` request returns 503 — that's deliberate so a misconfigured deploy can't accidentally accept any token.

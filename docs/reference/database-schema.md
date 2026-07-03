@@ -39,10 +39,10 @@ Adds `webmentions_types jsonb DEFAULT '{}'::jsonb` to `microblog` and `blog`. St
 ## Bootstrap order
 
 ```bash
-just load-sql sql/mastodon_migration.sql
-just load-sql sql/bluesky_migration.sql
-just load-sql sql/webmentions_migration.sql
-just load-sql sql/webmention_types_migration.sql
+mise run load-sql sql/mastodon_migration.sql
+mise run load-sql sql/bluesky_migration.sql
+mise run load-sql sql/webmentions_migration.sql
+mise run load-sql sql/webmention_types_migration.sql
 ```
 
 All idempotent — safe to re-run.

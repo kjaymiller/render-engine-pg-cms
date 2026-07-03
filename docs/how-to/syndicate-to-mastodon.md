@@ -20,7 +20,7 @@ Generate a token in Mastodon → **Preferences → Development → New applicati
 Apply the migration that adds `mastodon_url`:
 
 ```bash
-just load-sql sql/mastodon_migration.sql
+mise run load-sql sql/mastodon_migration.sql
 ```
 
 ## Posting from the edit page
@@ -48,8 +48,8 @@ See [reference/http-api.md](../reference/http-api.md#syndication).
 If you have Mastodon posts that predate the CMS, run:
 
 ```bash
-just backport-syndication       # dry-run
-just backport-syndication apply # apply
+mise run backport-syndication       # dry-run
+mise run backport-syndication apply # apply
 ```
 
 It walks Mastodon history, matches posts to records by text + timestamp, and fills in `mastodon_url`. One-shot tool.

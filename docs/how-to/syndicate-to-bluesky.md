@@ -21,7 +21,7 @@ Create an app password at **Bluesky Settings → App Passwords** (don't use your
 Apply the migration:
 
 ```bash
-just load-sql sql/bluesky_migration.sql
+mise run load-sql sql/bluesky_migration.sql
 ```
 
 ## Posting
@@ -42,7 +42,7 @@ curl -X POST http://localhost:8000/c/microblog/42/bluesky \
 
 ## Backfilling
 
-`just backport-syndication` also matches Bluesky history — see [the Mastodon how-to](syndicate-to-mastodon.md#backfilling-old-posts).
+`mise run backport-syndication` also matches Bluesky history — see [the Mastodon how-to](syndicate-to-mastodon.md#backfilling-old-posts).
 
 ## When it fails
 

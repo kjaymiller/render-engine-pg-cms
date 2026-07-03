@@ -10,7 +10,7 @@ This tutorial takes you from a fresh checkout to a published post. By the end, y
 ## What you need
 
 - An existing [render-engine](https://github.com/render-engine/render-engine) site with a PostgreSQL collection plugin already configured (the CMS reads its `pyproject.toml`).
-- [`uv`](https://docs.astral.sh/uv/) and [`just`](https://github.com/casey/just) installed.
+- [`mise`](https://mise.jdx.dev/) installed (it provisions Python + `uv`).
 - The DSN for the same Postgres database the site uses.
 
 ## 1. Clone and install
@@ -19,7 +19,7 @@ This tutorial takes you from a fresh checkout to a published post. By the end, y
 git clone https://github.com/kjaymiller/render-engine-pg-cms.git
 cd render-engine-pg-cms
 cp .env.example .env
-just install
+mise run install
 ```
 
 ## 2. Configure
@@ -38,10 +38,10 @@ Everything else (syndication, uploads, AI) is optional and layered on later. See
 The CMS adds a few columns to the site's tables (syndication URLs, webmention counts). Run them once:
 
 ```bash
-just load-sql sql/mastodon_migration.sql
-just load-sql sql/bluesky_migration.sql
-just load-sql sql/webmentions_migration.sql
-just load-sql sql/webmention_types_migration.sql
+mise run load-sql sql/mastodon_migration.sql
+mise run load-sql sql/bluesky_migration.sql
+mise run load-sql sql/webmentions_migration.sql
+mise run load-sql sql/webmention_types_migration.sql
 ```
 
 They're all `IF NOT EXISTS`-guarded — safe to re-run.
@@ -49,7 +49,7 @@ They're all `IF NOT EXISTS`-guarded — safe to re-run.
 ## 4. Start the CMS
 
 ```bash
-just dev
+mise run dev
 ```
 
 Open <http://localhost:8000>. You'll see a unified timeline (empty for now) and a masthead with one nav entry per content type detected from your site's `pyproject.toml`.

@@ -21,7 +21,7 @@ GITHUB_REF=main                      # default
 ## Manually
 
 - **UI**: click **Publish** in the masthead. A confirmation page reports success or failure.
-- **CLI**: `just publish`.
+- **CLI**: `mise run publish`.
 
 ## Automatically on save
 

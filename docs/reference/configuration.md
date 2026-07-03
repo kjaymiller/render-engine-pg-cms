@@ -5,7 +5,7 @@ description: "Every environment variable the CMS reads, what it does, and its de
 
 # Configuration reference
 
-The CMS reads configuration from environment variables plus the site's `pyproject.toml`. The `just dev` recipe pulls several secrets from 1Password on the fly; anything not managed there goes in `.env` and is loaded via `python-dotenv`.
+The CMS reads configuration from environment variables plus the site's `pyproject.toml`. The `mise run dev` task injects secrets from fnox (age-encrypted) on the fly; anything not managed there goes in `.env` and is loaded via `python-dotenv`.
 
 ## Required
 
@@ -74,15 +74,26 @@ The CMS reads configuration from environment variables plus the site's `pyprojec
 | `OLLAMA_URL`   | Ollama HTTP endpoint.                         | `http://localhost:11434` |
 | `OLLAMA_MODEL` | Model tag (must be pulled via `ollama pull`). | `llama3.2:3b`            |
 
-## 1Password integration
+## Secrets (fnox + age)
 
-The `justfile` reads these secret references via `op read` at startup. If you use a different password manager or plain `.env`, adjust the recipes accordingly.
+Secrets are stored in `fnox.toml`, encrypted with [age](https://github.com/FiloSottile/age) via [fnox](https://github.com/jdx/fnox). The file is safe to commit — decryption needs the age identity referenced by `key_file` in `fnox.toml` (kept outside the repo, e.g. `~/.config/fnox/age-identity.txt`). The mise tasks inject them at runtime with `fnox exec -- <command>`.
+
+Keys stored in fnox:
 
 ```
-db_secret         op://Private/personal-blog/credential
-mastodon_secret   op://Private/mastodon.social/access-token
-webmention_secret op://Private/Webmention.io/credential
-bluesky_secret    op://Private/bluesky/app password
-github_secret     op://Private/GH-PAT - Kjaymiller.com PG CMS/credential
-azure_secret      op://Private/Azure Storage Connection String/credential
+CONNECTION_STRING
+MASTODON_ACCESS_TOKEN
+WEBMENTION_IO_TOKEN
+BLUESKY_APP_PASSWORD
+GITHUB_TOKEN
+AZURE_STORAGE_CONNECTION_STRING
+CMS_API_TOKEN
 ```
+
+Set or rotate a value (reads from stdin, never touches shell history):
+
+```bash
+printf '%s' "<value>" | fnox set CONNECTION_STRING -p age
+```
+
+Inspect keys with `fnox ls`. Anything non-secret goes in `.env` and is loaded via `python-dotenv`.

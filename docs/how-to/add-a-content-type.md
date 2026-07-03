@@ -23,7 +23,7 @@ The CMS reads content-type definitions from the render-engine site's `pyproject.
 
    For a type with tags, supply a list of statements covering the tag join — see [reference/pyproject-schema.md](../reference/pyproject-schema.md).
 
-3. **Restart the CMS** — `pyproject.toml` is loaded once on first request. Ctrl-C and `just dev` again.
+3. **Restart the CMS** — `pyproject.toml` is loaded once on first request. Ctrl-C and `mise run dev` again.
 
 4. **Verify**: the type appears in the masthead nav and at `/c/<name>`. Click **New** to confirm the edit form has the columns you expect.
 

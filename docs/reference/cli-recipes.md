@@ -1,21 +1,21 @@
 ---
 title: "CLI recipes"
-description: "Every `just` target the CMS ships and what it does."
+description: "Every `mise` task the CMS ships and what it does."
 ---
 
 # CLI recipes
 
 | Command                      | What it does                                         |
 | ---------------------------- | ---------------------------------------------------- |
-| `just install`               | `uv sync` — create venv + install deps               |
-| `just dev [host] [port]`     | Run uvicorn with `--reload`                          |
-| `just publish`               | Trigger the site's GitHub publish workflow           |
-| `just sync-webmentions`      | Full webmention sync from the CLI (prints results)   |
-| `just load-sql sql/<file>`   | Apply an idempotent migration against the DB         |
-| `just backport-syndication`  | Dry-run backfill of `mastodon_url` / `bluesky_url`   |
-| `just extension`             | Package the `.xpi` for Zen/Firefox                   |
-| `just lock`                  | `uv lock --upgrade`                                  |
-| `just docs-build`            | Build the static docs site into `docs-site/output/`  |
-| `just docs-serve`            | Serve the built docs locally                         |
+| `mise run install`               | `uv sync` — create venv + install deps               |
+| `mise run dev [host] [port]`     | Run uvicorn with `--reload`                          |
+| `mise run publish`               | Trigger the site's GitHub publish workflow           |
+| `mise run sync-webmentions`      | Full webmention sync from the CLI (prints results)   |
+| `mise run load-sql sql/<file>`   | Apply an idempotent migration against the DB         |
+| `mise run backport-syndication`  | Dry-run backfill of `mastodon_url` / `bluesky_url`   |
+| `mise run extension`             | Package the `.xpi` for Zen/Firefox                   |
+| `mise run lock`                  | `uv lock --upgrade`                                  |
+| `mise run docs`            | Build the static docs site into `docs-site/output/`  |
+| `mise run docs-serve`            | Serve the built docs locally                         |
 
-Secrets used by these recipes are read from 1Password via `op read`. See [configuration.md](configuration.md#1password-integration) for the secret references and how to swap them out.
+List every task with `mise tasks`. Secrets are injected from fnox (age-encrypted) via `fnox exec`. See [configuration.md](configuration.md#secrets-fnox--age) for the keys and how to set them.

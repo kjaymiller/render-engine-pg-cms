@@ -34,7 +34,7 @@ Dry, complete technical descriptions.
 - [Configuration (env vars)](reference/configuration.md)
 - [pyproject.toml schema](reference/pyproject-schema.md)
 - [HTTP API](reference/http-api.md)
-- [CLI recipes (just targets)](reference/cli-recipes.md)
+- [CLI recipes (mise tasks)](reference/cli-recipes.md)
 - [Database schema and migrations](reference/database-schema.md)
 
 ## Explanation — why it works this way

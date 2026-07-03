@@ -1,0 +1,95 @@
+# mise configuration — tools, env, and tasks for render-engine-pg-cms.
+# Run `mise tasks` to list tasks, `mise run <task>` to run one.
+#
+# Secrets live in fnox.toml (age-encrypted) and are injected at runtime with
+# `fnox exec -- <command>`. See `fnox ls` for the current keys.
+
+[tools]
+python = "3.12"
+uv = "latest"
+fnox = "latest"
+age = "latest"
+
+[env]
+# Load .env for non-secret config (SITE_PYPROJECT, GITHUB_REPO, MASTODON_INSTANCE, etc.).
+# Secrets come from fnox, not here.
+_.file = ".env"
+
+[tasks.install]
+description = "Install dependencies into a uv-managed venv"
+run = "uv sync"
+
+[tasks.dev]
+description = "Run the server with auto-reload (host defaults 127.0.0.1, port 8000)"
+shell = "bash -c"
+usage = '''
+arg "<host>" default="127.0.0.1"
+arg "<port>" default="8000"
+'''
+run = '''fnox exec -- uv run uvicorn render_engine_pg_cms.main:app --reload --host "$usage_host" --port "$usage_port"'''
+
+[tasks.sync-webmentions]
+description = "Backfill webmention counts for all existing microblog + blog rows"
+run = '''fnox exec -- uv run python -c "from render_engine_pg_cms.config import load_config; from render_engine_pg_cms.webmention import sync_all; results = sync_all(load_config()); print(f'synced {len(results)} records'); [print(r) for r in results]"'''
+
+[tasks.publish]
+description = "Trigger the site's publish workflow from the CLI (no browser needed)"
+run = '''fnox exec -- uv run python -c "from render_engine_pg_cms.config import load_config; from render_engine_pg_cms.github import trigger_publish; trigger_publish(load_config()); print('dispatched')"'''
+
+[tasks.lock]
+description = "Update locked dependencies"
+run = "uv lock --upgrade"
+
+[tasks.clean]
+description = "Drop and recreate the venv"
+run = "rm -rf .venv"
+
+[tasks.load-sql]
+description = "Run a SQL file against the content database (e.g. `mise run load-sql sql/mastodon_migration.sql`)"
+shell = "bash -c"
+usage = 'arg "<file>"'
+run = '''fnox exec -- sh -c 'psql "$CONNECTION_STRING" -f "$1"' _ "$usage_file"'''
+
+[tasks.backport-syndication]
+description = "Backport mastodon_url / bluesky_url for existing records (dry run; pass `apply` to write)"
+shell = "bash -c"
+usage = 'arg "<mode>" default="dry"'
+run = """
+set -euo pipefail
+if [ "$usage_mode" = "apply" ]; then
+    fnox exec -- uv run python -m render_engine_pg_cms.backport apply
+else
+    fnox exec -- uv run python -m render_engine_pg_cms.backport
+fi
+"""
+
+[tasks.docs]
+description = "Build the static docs site into docs-site/output/"
+dir = "docs-site"
+run = "uv run --with 'render-engine[cli]' --with render-engine-markdown render-engine build"
+
+[tasks.docs-serve]
+description = "Serve the built docs over HTTP for local preview"
+dir = "docs-site/output"
+usage = 'arg "<port>" default="8001"'
+run = 'python -m http.server "$usage_port"'
+
+[tasks.rotate-api-token]
+description = "Generate a fresh CMS_API_TOKEN and store it in fnox. Restart `mise run dev` afterwards."
+shell = "bash -c"
+run = """
+set -euo pipefail
+token="$(openssl rand -hex 32)"
+printf '%s' "$token" | fnox set CMS_API_TOKEN -p age
+echo "→ rotated CMS_API_TOKEN (${#token} chars). Restart 'mise run dev' to pick it up."
+"""
+
+[tasks.extension]
+description = "Package the Firefox/Zen extension into a loadable .xpi"
+shell = "bash -c"
+run = """
+set -euo pipefail
+rm -f pg-cms-quick-capture.xpi
+cd extension && zip -r ../pg-cms-quick-capture.xpi . -x "*.DS_Store"
+echo "→ pg-cms-quick-capture.xpi ready. Load it in Zen via about:debugging → Load Temporary Add-on."
+"""

@@ -11,14 +11,18 @@ A lightweight FastAPI CMS for [render-engine](https://github.com/render-engine/r
 
 ## Quick start
 
-Requires [`uv`](https://docs.astral.sh/uv/) and [`just`](https://github.com/casey/just).
+Requires [`mise`](https://mise.jdx.dev/) — it provisions Python, `uv`, `fnox`, and `age`, and runs the tasks below.
 
 ```bash
 cd render-engine-pg-cms
-cp .env.example .env          # set CONNECTION_STRING at minimum
-just install
-just dev                      # http://localhost:8000
+mise install                  # provision the pinned Python + uv
+cp .env.example .env          # non-secret config (site path, GitHub repo, etc.)
+printf '%s' "<dsn>" | fnox set CONNECTION_STRING -p age   # + other secrets — see below
+mise run install              # uv sync — create venv + install deps
+mise run dev                  # http://localhost:8000
 ```
+
+Secrets live in `fnox.toml`, age-encrypted (`fnox ls` to see the keys, `fnox set` to add them — details in [configuration.md](docs/reference/configuration.md#secrets-fnox--age)). Run `mise tasks` to list every task.
 
 ## Documentation
 
@@ -73,18 +77,18 @@ sql/                   idempotent migrations
 extension/             Firefox/Zen WebExtension for quick capture
 ```
 
-## Common `just` recipes
+## Common `mise` tasks
 
 | Command                      | What it does                                         |
 | ---------------------------- | ---------------------------------------------------- |
-| `just install`               | `uv sync` — create venv + install deps               |
-| `just dev [host] [port]`     | Run uvicorn with `--reload`                          |
-| `just publish`               | Trigger the site's GitHub publish workflow           |
-| `just sync-webmentions`      | Full webmention sync from the CLI (prints results)   |
-| `just load-sql sql/<file>`   | Apply an idempotent migration against the DB         |
-| `just backport-syndication`  | Dry-run backfill of `mastodon_url` / `bluesky_url`   |
-| `just extension`             | Package the `.xpi` for Zen/Firefox                   |
-| `just lock`                  | `uv lock --upgrade`                                  |
+| `mise run install`               | `uv sync` — create venv + install deps               |
+| `mise run dev [host] [port]`     | Run uvicorn with `--reload`                          |
+| `mise run publish`               | Trigger the site's GitHub publish workflow           |
+| `mise run sync-webmentions`      | Full webmention sync from the CLI (prints results)   |
+| `mise run load-sql sql/<file>`   | Apply an idempotent migration against the DB         |
+| `mise run backport-syndication`  | Dry-run backfill of `mastodon_url` / `bluesky_url`   |
+| `mise run extension`             | Package the `.xpi` for Zen/Firefox                   |
+| `mise run lock`                  | `uv lock --upgrade`                                  |
 
 ## Caveats
 
