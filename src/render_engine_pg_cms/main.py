@@ -56,8 +56,43 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 
 
+def _resolve_version() -> str:
+    """Derive the app version from the git tag via setuptools-scm.
+
+    Order of preference:
+      1. Installed dist metadata — setuptools-scm bakes the git-derived
+         version in at build/install time.
+      2. `git describe` — covers running from an uninstalled source checkout.
+      3. "dev" as a last resort.
+    """
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        return _pkg_version("render-engine-pg-cms")
+    except Exception:
+        pass
+    try:
+        import subprocess
+
+        v = subprocess.run(
+            ["git", "describe", "--tags", "--dirty", "--always"],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if v:
+            return v.lstrip("v")
+    except Exception:
+        pass
+    return "dev"
+
+
+APP_VERSION = _resolve_version()
+
+
 def _inject_content_types(request: Request) -> dict:
-    return {"content_types": cfg().content_types}
+    return {"content_types": cfg().content_types, "app_version": APP_VERSION}
 
 
 templates = Jinja2Templates(
