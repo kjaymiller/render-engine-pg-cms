@@ -32,4 +32,7 @@ RUN if [ -n "$VERSION" ]; then export SETUPTOOLS_SCM_PRETEND_VERSION="$VERSION";
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "render_engine_pg_cms.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --no-sync: the environment is already built into the image above. Without it,
+# `uv run` re-syncs on every start — re-deriving the setuptools-scm version from
+# the (now dirty) copied checkout and yielding a bogus .devN version at runtime.
+CMD ["uv", "run", "--no-sync", "uvicorn", "render_engine_pg_cms.main:app", "--host", "0.0.0.0", "--port", "8000"]
