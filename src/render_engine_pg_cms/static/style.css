@@ -1767,6 +1767,13 @@ a.status:hover { transform: translateY(-1px) scale(1.05); filter: saturate(1.2);
 }
 .tl-foot a { color: var(--ink-soft); }
 .tl-foot a:hover { color: var(--clay); }
+.tl-foot-actions { display: flex; align-items: center; gap: 0.9rem; }
+.tl-foot-actions form { margin: 0; }
+button.tl-delete {
+  padding: 0.15rem 0.55rem;
+  font-family: var(--mono); font-size: 0.72rem;
+  border-radius: 6px;
+}
 
 /* Alpine transitions for filter show/hide */
 .tl-enter { transition: opacity 300ms var(--ease-soft), transform 300ms var(--ease-soft); }

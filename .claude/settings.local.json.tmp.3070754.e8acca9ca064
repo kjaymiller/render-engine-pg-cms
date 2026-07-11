@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/kjaymiller/homelab/compose/cms/**)",
+      "Read(//home/kjaymiller/homelab/compose/all-my-favs/**)",
+      "Read(//home/kjaymiller/wytchr/.github/workflows/**)",
+      "Read(//home/kjaymiller/all-my-favs/.github/workflows/**)",
+      "Bash(awk -F/ '{print $NF}')",
+      "Bash(git ls-remote *)",
+      "Bash(chmod +x ~/homelab/scripts/git-watch/watch.sh ~/homelab/scripts/git-watch/install-systemd.sh)",
+      "Bash(command -v shellcheck)",
+      "Bash(shellcheck ~/homelab/scripts/git-watch/watch.sh ~/homelab/scripts/git-watch/install-systemd.sh)",
+      "Bash(bash -n ~/homelab/scripts/git-watch/watch.sh)",
+      "Bash(bash -n ~/homelab/scripts/git-watch/install-systemd.sh)",
+      "Bash(python3 -c 'import json,sys; print\\(json.dumps\\(sys.stdin.read\\(\\)\\)\\)')",
+      "Bash(python -c \"import jinja2; e=jinja2.Environment\\(\\); e.parse\\(open\\('src/render_engine_pg_cms/templates/index.html'\\).read\\(\\)\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('/home/kjaymiller/render-engine-pg-cms/src/render_engine_pg_cms/main.py'\\).read\\(\\)\\)\")",
+      "Bash(uv run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git tag *)",
+      "Bash(git push *)"
+    ]
+  }
+}

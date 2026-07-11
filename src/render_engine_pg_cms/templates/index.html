@@ -130,7 +130,14 @@
 
           <footer class="tl-foot">
             <span>#{{ r.id }}{% if r.slug %} · {{ r.slug }}{% endif %}</span>
-            <a href="/c/{{ r._type }}/{{ r.id }}">Edit →</a>
+            <span class="tl-foot-actions">
+              <a href="/c/{{ r._type }}/{{ r.id }}">Edit →</a>
+              <form method="post" action="/c/{{ r._type }}/{{ r.id }}/delete"
+                    onsubmit="return confirm('Delete this {{ r._type }}{% if r.draft %} draft{% endif %}? This cannot be undone.');">
+                <input type="hidden" name="next" value="/{% if request.query_params %}?{{ request.query_params }}{% endif %}">
+                <button type="submit" class="tl-delete danger">Delete</button>
+              </form>
+            </span>
           </footer>
         </article>
       </li>

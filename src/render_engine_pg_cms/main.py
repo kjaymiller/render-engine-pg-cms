@@ -882,17 +882,20 @@ async def update(request: Request, name: str, record_id: int):
 
 
 @app.post("/c/{name}/{record_id}/delete")
-def delete(name: str, record_id: int):
+def delete(name: str, record_id: int, next: str = Form("")):
     ct = _ct(name)
+    # Only honour local redirect targets to avoid open redirects.
+    dest = next if next.startswith("/") and not next.startswith("//") else f"/c/{name}"
+    sep = "&" if "?" in dest else "?"
     try:
         db.delete_record(cfg(), ct, record_id)
     except psycopg.Error as exc:
         return RedirectResponse(
-            f"/c/{name}?msg={_db_error_message(exc)}&level=err",
+            f"{dest}{sep}msg={_db_error_message(exc)}&level=err",
             status_code=303,
         )
     return RedirectResponse(
-        f"/c/{name}?msg=Deleted&level=ok", status_code=303
+        f"{dest}{sep}msg=Deleted&level=ok", status_code=303
     )
 
 

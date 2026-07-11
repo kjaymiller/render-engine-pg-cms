@@ -762,7 +762,6 @@ wheels = [
 
 [[package]]
 name = "render-engine-pg-cms"
-version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "azure-storage-blob" },
