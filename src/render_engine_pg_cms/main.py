@@ -118,6 +118,10 @@ AUTOPUBLISH_DEBOUNCE_SECONDS = float(
 )
 AUTOPUBLISH_ENABLED = os.environ.get("AUTOPUBLISH", "1") not in ("0", "false", "no")
 _pending_publish_task: "asyncio.Task | None" = None
+# The app's event loop, captured at startup. Lets sync (threadpool) routes —
+# e.g. the JSON API handlers — schedule autopublish safely, since they have no
+# running loop of their own. See schedule_autopublish().
+_app_loop: "asyncio.AbstractEventLoop | None" = None
 
 # Timestamp (UTC, ISO) of the last publish dispatch from this process.
 # Lets the status endpoint report "running" during the gap between dispatch
@@ -173,13 +177,30 @@ def schedule_autopublish(record: dict) -> None:
     `date`), for content types without a date column it runs freely, and
     when GitHub isn't configured.
     """
-    global _pending_publish_task
     if not AUTOPUBLISH_ENABLED:
         return
     if not (cfg().github_token and cfg().github_repo):
         return
     if not _record_is_live(record):
         return
+    # The async web routes run on the event loop; the JSON API routes are sync
+    # `def` handlers that FastAPI runs in a threadpool with no running loop.
+    # create_task() needs a running loop, so from the threadpool we marshal the
+    # scheduling back onto the captured app loop. Scheduling must never fail a
+    # request whose DB write already committed.
+    try:
+        asyncio.get_running_loop()
+        _reset_publish_timer()
+    except RuntimeError:
+        if _app_loop is None:
+            log.warning("autopublish: no event loop to schedule dispatch; skipping")
+            return
+        _app_loop.call_soon_threadsafe(_reset_publish_timer)
+
+
+def _reset_publish_timer() -> None:
+    """(Re)start the debounce timer. Must run on the event loop thread."""
+    global _pending_publish_task
     # Cancel any outstanding timer — later saves push the publish further.
     if _pending_publish_task and not _pending_publish_task.done():
         _pending_publish_task.cancel()
@@ -314,6 +335,8 @@ async def _webmention_sync_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _app_loop
+    _app_loop = asyncio.get_running_loop()
     task: asyncio.Task | None = None
     if WEBMENTION_SYNC_INTERVAL > 0 and cfg().webmention_io_token:
         task = asyncio.create_task(_webmention_sync_loop())

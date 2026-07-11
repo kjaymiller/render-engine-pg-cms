@@ -54,10 +54,16 @@ def _ct(name: str) -> ContentType:
 VALID_STATUSES = ("all", "published", "drafts", "scheduled")
 
 
-def _coerce_values(payload: dict, ct: ContentType) -> tuple[dict, list[str] | None]:
+def _coerce_values(
+    payload: dict, ct: ContentType, *, allow_draft: bool = True
+) -> tuple[dict, list[str] | None]:
     """Pull recognized columns out of a JSON payload, parse date if ISO,
     and split off `tags`. Unknown keys are ignored — same shape as the form
     handler's _extract but without form-encoding ceremony.
+
+    `allow_draft=False` (used by PATCH/update) rejects any attempt to change
+    the draft flag — publishing/unpublishing must go through a deliberate
+    path, not an arbitrary partial update.
     """
     values: dict[str, Any] = {}
     for col in ct.primary_columns:
@@ -74,6 +80,12 @@ def _coerce_values(payload: dict, ct: ContentType) -> tuple[dict, list[str] | No
             continue
         values[col] = raw
     if "draft" in payload:
+        if not allow_draft:
+            raise HTTPException(
+                400,
+                "`draft` cannot be changed via PATCH. Use the CMS "
+                "publish/draft controls to change draft status.",
+            )
         values["draft"] = bool(payload["draft"])
     tags = payload.get("tags")
     if tags is not None and not isinstance(tags, list):
@@ -150,7 +162,7 @@ def update_record(
     name: str, record_id: int, payload: dict = Body(...)
 ) -> dict:
     ct = _ct(name)
-    values, tags = _coerce_values(payload, ct)
+    values, tags = _coerce_values(payload, ct, allow_draft=False)
     try:
         db.update_record(_cfg(), ct, record_id, values, tags)
     except psycopg.Error as exc:
