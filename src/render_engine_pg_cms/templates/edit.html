@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status, publish_social_modal %}
+{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status, publish_social_modal, delete_svg %}
 {% block title %}{{ "New" if is_new else "Edit" }} {{ ct.name }}{% endblock %}
 {% block content %}
 {% set content_rows = {"microblog": 4, "notes": 10, "blog": 22}.get(ct.name, 10) %}
@@ -548,7 +548,7 @@
 </script>
 
 <div class="edit-layout {% if 'content' in ct.primary_columns %}has-preview{% endif %}">
-<form method="post" class="record-form edit-layout-form" novalidate x-data="editForm">
+<form id="record-form" method="post" class="record-form edit-layout-form" novalidate x-data="editForm">
   {% for col in ct.primary_columns if col not in ("id", "created_at", "updated_at", "draft") %}
     {% set val = record.get(col, "") if record else "" %}
     {% set err = errors.get(col) %}
@@ -760,8 +760,21 @@
     </label>
   {% endif %}
 
-  <button type="submit">{{ "Create" if is_new else "Save" }}</button>
+  <div class="form-actions">
+    <button type="submit">{{ "Create" if is_new else "Save" }}</button>
+    {% if not is_new %}
+      <button type="submit" form="delete-record" class="icon-btn danger"
+              title="Delete this {{ ct.name }}" aria-label="Delete this {{ ct.name }}"
+              onclick="return confirm('Delete this {{ ct.name }}{% if record.draft %} draft{% endif %}? This cannot be undone.');">
+        {{ delete_svg() }}
+      </button>
+    {% endif %}
+  </div>
 </form>
+{% if not is_new %}
+<form id="delete-record" method="post"
+      action="/c/{{ ct.name }}/{{ record.id }}/delete" hidden></form>
+{% endif %}
 
 {% if "content" in ct.primary_columns %}
 <aside class="edit-layout-aside">

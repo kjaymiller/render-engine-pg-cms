@@ -1767,13 +1767,26 @@ a.status:hover { transform: translateY(-1px) scale(1.05); filter: saturate(1.2);
 }
 .tl-foot a { color: var(--ink-soft); }
 .tl-foot a:hover { color: var(--clay); }
-.tl-foot-actions { display: flex; align-items: center; gap: 0.9rem; }
-.tl-foot-actions form { margin: 0; }
-button.tl-delete {
-  padding: 0.15rem 0.55rem;
-  font-family: var(--mono); font-size: 0.72rem;
-  border-radius: 6px;
+.tl-foot-actions { display: flex; align-items: center; gap: 0.6rem; }
+.delete-form { margin: 0; display: inline-flex; }
+
+/* Icon-only button (e.g. delete). Square, borderless until hover. */
+button.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0.3rem; line-height: 0;
+  background: transparent; border: 1px solid transparent;
+  border-radius: 7px; color: var(--ink-mute);
+  box-shadow: none; cursor: pointer;
+  transition: color 120ms var(--ease-soft), background 120ms var(--ease-soft),
+              border-color 120ms var(--ease-soft);
 }
+button.icon-btn.danger { color: color-mix(in srgb, var(--poppy) 70%, var(--ink-mute)); }
+button.icon-btn.danger:hover {
+  color: var(--paper); background: var(--poppy);
+  border-color: var(--poppy);
+}
+
+.form-actions { display: flex; align-items: center; gap: 0.9rem; }
 
 /* Alpine transitions for filter show/hide */
 .tl-enter { transition: opacity 300ms var(--ease-soft), transform 300ms var(--ease-soft); }
