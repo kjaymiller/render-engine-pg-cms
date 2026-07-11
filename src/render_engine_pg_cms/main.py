@@ -1271,14 +1271,19 @@ def _first_content_image(content: str) -> tuple[str, str] | None:
 
 
 def _pick_image(ct_name: str, record: dict) -> tuple[str | None, str]:
-    """Prefer image_url; fall back to the first image embedded in content."""
+    """Prefer image_url; fall back to the first image embedded in content.
+
+    Alt text precedence: explicit `image_alt` on the record > inline alt in
+    markdown/HTML > content-type fallback (title/description/content).
+    """
+    explicit_alt = (record.get("image_alt") or "").strip()
     url = record.get("image_url") or None
     if url:
-        return url, build_alt_text(ct_name, record)
+        return url, explicit_alt or build_alt_text(ct_name, record)
     found = _first_content_image(record.get("content") or "")
     if found:
         url, alt = found
-        return url, alt or build_alt_text(ct_name, record)
+        return url, explicit_alt or alt or build_alt_text(ct_name, record)
     return None, ""
 
 

@@ -1260,6 +1260,35 @@ main:has(.edit-layout.has-preview) { max-width: 1500px; }
 }
 .md-article img { max-width: 100%; height: auto; border-radius: var(--radius); }
 
+/* Mermaid diagrams (feeds + preview): center and constrain the rendered SVG.
+   The `.mermaid` div starts empty and is filled with the SVG (or an inline
+   error) once mermaid.render() resolves — no flash of raw diagram source. */
+.mermaid {
+  margin: 1rem 0;
+  text-align: center;
+  overflow-x: auto;
+}
+.mermaid svg { max-width: 100%; height: auto; }
+/* A diagram that failed to parse: show why, plus the offending source. */
+.mermaid.mermaid-error {
+  text-align: left;
+  border: 1px solid var(--clay, #b5533f);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  background: color-mix(in srgb, var(--clay, #b5533f) 8%, transparent);
+}
+.mermaid-error-msg {
+  margin: 0 0 0.4rem;
+  font-weight: 600;
+  color: var(--clay, #b5533f);
+}
+.mermaid-error-src {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
 /* Microblog: tweet-shaped card so the author can eyeball how it'll read on
    social. Visual only — the actual social composer lives elsewhere. */
 .tweet-card {

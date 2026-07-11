@@ -67,6 +67,7 @@ Input type per column name (decided in `templates/edit.html`):
 | `slug`                      | `<input>` + AI "Suggest" button             |
 | `title` / `name`            | `<input>`, auto-slugifies into `slug`       |
 | `image_url`                 | `<input type="url">` + drag/drop upload     |
+| `image_alt`                 | `<textarea>` for screen-reader / social alt |
 | `external_link`, `url`      | `<input type="url">`                        |
 | `latitude`, `longitude`     | `<input type="number">`                     |
 | `location`                  | `<input>` + "Look up" geocode (OSM)         |

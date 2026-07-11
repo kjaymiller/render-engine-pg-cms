@@ -640,6 +640,11 @@
                  :class="level ? 'drop-' + level : ''"></small>
         </div>
 
+      {% elif col == "image_alt" %}
+        <textarea name="{{ col }}" rows="2"
+                  placeholder="Describe the image for screen readers and social posts."
+                  maxlength="1000">{{ val or "" }}</textarea>
+
       {% elif col == "external_link" or col == "url" %}
         <input type="url" name="{{ col }}" value="{{ val or '' }}">
 
@@ -770,7 +775,8 @@
             :aria-expanded="open ? 'true' : 'false'"
             x-text="open ? 'Hide' : 'Show'"></button>
   </header>
-  <div class="md-preview-body" x-show="open" x-cloak>
+  <div class="md-preview-body" x-show="open" x-cloak
+       x-effect="html; $nextTick(() => window.renderMermaid && window.renderMermaid($el))">
     {% if ct.name == "microblog" %}
       <div class="tweet-card">
         <div class="tweet-card-head">

@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Figtree:ital,wght@0,300..700;1,300..700&family=JetBrains+Mono:wght@400;500&family=Allura&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
   <script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 </head>
 <body x-data="themeSwitcher" :data-theme="theme">
@@ -316,6 +317,59 @@
         },
       }));
     });
+  </script>
+  <script>
+    // Mermaid: markdown renderers (server-side markdown-it and the editor's
+    // client-side `marked`) both emit ```mermaid fences as
+    // <pre><code class="language-mermaid">…</code></pre>. Upgrade those in place
+    // to live diagrams. Safe to call repeatedly and on a subtree — used by the
+    // static feeds on load and by the editor preview on every keystroke.
+    // We render each block individually (rather than mermaid.run over all of
+    // them) so one broken diagram shows an inline error with its source instead
+    // of blanking or taking the whole pass down.
+    (function () {
+      let ready = false;
+      let seq = 0;
+      async function renderOne(m, el, src) {
+        try {
+          const { svg } = await m.render("mmd-" + (seq++), src);
+          el.classList.remove("mermaid-error");
+          el.innerHTML = svg;
+        } catch (e) {
+          el.classList.add("mermaid-error");
+          el.textContent = "";
+          const msg = document.createElement("p");
+          msg.className = "mermaid-error-msg";
+          msg.textContent = "Diagram error: "
+            + (e && e.message ? e.message.split("\n")[0] : String(e));
+          const pre = document.createElement("pre");
+          pre.className = "mermaid-error-src";
+          pre.textContent = src;
+          el.append(msg, pre);
+        }
+      }
+      window.renderMermaid = function (root) {
+        const m = window.mermaid;
+        if (!m) return;
+        if (!ready) {
+          m.initialize({
+            startOnLoad: false,
+            theme: document.body.getAttribute("data-theme") === "road"
+              ? "dark" : "default",
+          });
+          ready = true;
+        }
+        const scope = root || document;
+        scope.querySelectorAll("pre > code.language-mermaid").forEach((code) => {
+          const src = code.textContent;
+          const div = document.createElement("div");
+          div.className = "mermaid";
+          code.parentElement.replaceWith(div);
+          renderOne(m, div, src);
+        });
+      };
+      document.addEventListener("DOMContentLoaded", () => window.renderMermaid());
+    })();
   </script>
   <footer class="colophon">
     <span>set in Fraunces &amp; Source Serif</span>
