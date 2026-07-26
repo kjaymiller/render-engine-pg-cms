@@ -7,6 +7,11 @@ Goals:
   - Strip EXIF/location metadata (camera bodies leak GPS).
   - Leave SVG and GIF untouched — SVG is already text-compressible, and
     re-encoding animated GIFs would silently drop frames.
+  - Transcode HEIC/HEIF (the iPhone default) to WebP. We never store the raw
+    HEIC — pillow-heif teaches Pillow to *decode* it, then the normal pipeline
+    below re-encodes to WebP. If decode fails, we fall through to the original
+    HEIC bytes, which the blob allow-list rejects — so raw HEIC can't leak into
+    storage.
 """
 from __future__ import annotations
 
@@ -15,6 +20,11 @@ import logging
 from typing import Literal
 
 from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener
+
+# Register the HEIF/HEIC opener so Image.open() can decode iPhone photos.
+# Idempotent; safe to call at import.
+register_heif_opener()
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +38,9 @@ JPEG_QUALITY = 82
 MAX_DECODE_PIXELS = 100_000_000
 # Formats we refuse to re-encode (pass through as-is).
 PASSTHROUGH_TYPES = {"image/svg+xml", "image/gif"}
+# Opaque sources we prefer to emit as WebP rather than JPEG. HEIC has no browser
+# support and must be transcoded; existing WebP stays WebP.
+PREFER_WEBP_TYPES = {"image/webp", "image/heic", "image/heif"}
 
 
 def optimize(
@@ -74,9 +87,10 @@ def optimize(
         target = "webp"
     else:
         # JPEG for opaque photos is universally cached/supported; WebP saves
-        # more bytes but JPEG is the safer default for a personal CMS. If the
-        # caller explicitly uploaded WebP, keep WebP.
-        target = "webp" if content_type == "image/webp" else "jpeg"
+        # more bytes but JPEG is the safer default for a personal CMS. HEIC has
+        # no browser support so it must go to WebP, and an explicit WebP upload
+        # stays WebP.
+        target = "webp" if content_type in PREFER_WEBP_TYPES else "jpeg"
 
     buf = io.BytesIO()
     if target == "webp":
