@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 tags via setuptools-scm. Releases prior to `2026.7.10` are recorded only as git
 tags / GitHub releases.
 
+## [2026.8.0] - 2026-08-03
+
+### Added
+- The content editor keeps markdown reference-link definitions in sync. Writing
+  `[link]`, `[text][ref]`, or `[text][]` appends a `[ref]:` stub to a
+  definition block at the bottom of the content; definitions written elsewhere
+  in the body are collected into that block. Renaming or deleting a reference
+  drops its definition, and the URL is remembered for the session so retyping
+  (or fixing a typo in) the reference restores it. Code fences, inline code,
+  inline links/images, and task-list markers are ignored.
+
 ## [2026.7.10] - 2026-07-26
 
 ### Added

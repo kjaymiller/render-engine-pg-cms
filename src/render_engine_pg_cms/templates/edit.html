@@ -395,6 +395,170 @@
       },
     }));
 
+    // Reference-link autopilot for the content textarea.
+    //
+    // Writing `[link]`, `[text][ref]` or `[text][]` in the body means markdown
+    // is looking for a matching `[ref]: url` definition. This keeps that block
+    // of definitions parked at the bottom of the content and in sync with the
+    // body as references are added, renamed, or deleted:
+    //   - a reference with no definition gets an empty `[ref]: ` stub appended
+    //   - definitions scattered through the body are collected into one block
+    //   - a definition whose reference is gone is dropped, but its URL is
+    //     stashed for the session so retyping (or fixing a typo in) the
+    //     reference brings the URL back instead of losing it
+    // Code fences and inline code are masked out first so `[0]` inside a code
+    // sample never grows a definition.
+    const _maskCode = (text) => {
+      const blank = (s) => s.replace(/[^\n]/g, " ");
+      const lines = text.split("\n");
+      let fence = null;
+      const masked = lines.map((line) => {
+        const open = line.match(/^[ \t]{0,3}(```+|~~~+)/);
+        if (fence) {
+          const closed = open && open[1][0] === fence[0] && open[1].length >= fence.length;
+          if (closed) fence = null;
+          return blank(line);
+        }
+        if (open) {
+          fence = open[1];
+          return blank(line);
+        }
+        // Inline code spans, then whole inline links/images — the text inside
+        // `[label](url)` can't be a reference, so blank it out wholesale.
+        return line
+          .replace(/(`+)(?:(?!\1)[\s\S])*\1/g, blank)
+          .replace(/!?\[(?:[^\[\]\n]|\[[^\[\]\n]*\])*\]\([^)\n]*\)/g, blank);
+      });
+      return masked.join("\n");
+    };
+
+    const _DEF_RE = /^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*(.*)$/;
+    const _REF_RE = /(!?)\[([^\[\]\n]*)\](\[([^\[\]\n]*)\])?/g;
+
+    // Labels are matched case-insensitively per CommonMark.
+    const _labelKey = (s) => s.trim().replace(/\s+/g, " ").toLowerCase();
+
+    // Every label the body references, in order of first appearance.
+    const _collectRefs = (masked, defLineNumbers) => {
+      const out = [];
+      const seen = new Set();
+      let offset = 0;
+      masked.split("\n").forEach((line, i) => {
+        const lineStart = offset;
+        offset += line.length + 1;
+        if (defLineNumbers.has(i)) return;
+        let m;
+        _REF_RE.lastIndex = 0;
+        while ((m = _REF_RE.exec(line)) !== null) {
+          const after = line[m.index + m[0].length] || "";
+          if (after === "(" || after === ":") continue;  // inline link / definition
+          let label;
+          if (m[3] !== undefined) {
+            label = m[4].trim() ? m[4] : m[2];  // full or collapsed
+          } else {
+            if (m[1] === "!") continue;         // inline image
+            if (after === "[") continue;        // handled by the next match
+            // Shortcut ref. Skip task-list markers and `array[0]`-style
+            // subscripts, which are almost never link references.
+            if (/^[ xX]?$/.test(m[2])) continue;
+            const before = line[m.index - 1] || "";
+            if (/[\w)\]]/.test(before)) continue;
+            label = m[2];
+          }
+          const key = _labelKey(label);
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          out.push({ key: key, label: label.trim(), pos: lineStart + m.index });
+        }
+      });
+      return out;
+    };
+
+    // Returns the rewritten text, or null when nothing needs to change.
+    const _syncRefLinks = (text, stash) => {
+      const masked = _maskCode(text);
+      const maskedLines = masked.split("\n");
+      const lines = text.split("\n");
+      const defs = new Map();          // key -> {label, dest}
+      const defLineNumbers = new Set();
+      maskedLines.forEach((line, i) => {
+        const m = line.match(_DEF_RE);
+        if (!m) return;
+        defLineNumbers.add(i);
+        const real = lines[i].match(_DEF_RE) || m;
+        const key = _labelKey(real[1]);
+        const dest = (real[2] || "").trim();
+        // Later duplicates only win if they actually carry a destination.
+        if (!defs.has(key) || dest) defs.set(key, { label: real[1].trim(), dest: dest });
+      });
+      const refs = _collectRefs(masked, defLineNumbers);
+      if (!refs.length && !defs.size) return null;
+
+      const wanted = [];
+      for (const ref of refs) {
+        const existing = defs.get(ref.key);
+        const dest = (existing && existing.dest) || stash.get(ref.key) || "";
+        wanted.push({ label: (existing && existing.label) || ref.label, dest: dest });
+      }
+      // Definitions with no remaining reference go away; remember their URLs so
+      // a re-typed or corrected reference gets them back.
+      const live = new Set(refs.map((r) => r.key));
+      for (const [key, def] of defs) {
+        if (!live.has(key) && def.dest) stash.set(key, def.dest);
+      }
+
+      let body = lines.filter((_, i) => !defLineNumbers.has(i)).join("\n");
+      if (defLineNumbers.size) {
+        // Pulling definitions out of the body can leave a hole; markdown treats
+        // any run of blank lines the same, so close it back up.
+        body = body.replace(/^\n+/, "").replace(/\n{3,}/g, "\n\n");
+      }
+      body = body.replace(/\s+$/, "");
+      const block = wanted.map((d) => `[${d.label}]: ${d.dest}`.replace(/ $/, "")).join("\n");
+      const next = block ? (body ? body + "\n\n" + block + "\n" : block + "\n") : body;
+      return next === text ? null : next;
+    };
+
+    Alpine.data("linkRefs", () => ({
+      _timer: null,
+      _stash: new Map(),
+      onInput(el) {
+        clearTimeout(this._timer);
+        // Settle before rewriting so we aren't reshuffling the document
+        // between keystrokes.
+        this._timer = setTimeout(() => this.sync(el), 600);
+      },
+      sync(el) {
+        const before = el.value;
+        let after;
+        try {
+          after = _syncRefLinks(before, this._stash);
+        } catch (_) {
+          return;  // never let a parse hiccup eat the user's typing
+        }
+        if (after === null) return;
+        // Keep the caret where the user left it: anything before the first
+        // change stays put, anything after the last change shifts by the
+        // length delta.
+        const pos = el.selectionStart ?? after.length;
+        const end = el.selectionEnd ?? pos;
+        let prefix = 0;
+        while (prefix < before.length && prefix < after.length
+               && before[prefix] === after[prefix]) prefix++;
+        let suffix = 0;
+        while (suffix < before.length - prefix && suffix < after.length - prefix
+               && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+        const remap = (p) => {
+          if (p <= prefix) return p;
+          if (before.length - p <= suffix) return after.length - (before.length - p);
+          return Math.min(prefix, after.length);
+        };
+        el.value = after;
+        el.setSelectionRange(remap(pos), remap(end));
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      },
+    }));
+
     // Live markdown preview alongside the content textarea. The textarea owns
     // the form value via x-model on `src`; we compute `html` from it through
     // `marked`. Microblog uses a tweet-shaped preview; longer types render
@@ -563,7 +727,10 @@
              @dragleave="onDragLeave($event)"
              @drop="onDrop($event)">
           <textarea name="content" rows="{{ content_rows }}"
+                    x-data="linkRefs"
                     @paste="onPaste($event)"
+                    @input="onInput($event.target)"
+                    @blur="sync($event.target)"
           >{{ val or "" }}</textarea>
           <small class="drop-hint" x-text="status || 'Drop or paste an image to upload'"
                  :class="level ? 'drop-' + level : ''"></small>
