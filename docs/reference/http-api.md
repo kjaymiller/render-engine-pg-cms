@@ -100,6 +100,8 @@ Errors:
 
 ## AI
 
+Slug and description generation call the configured chat backend (`CHAT_BASE_URL` etc. — see [configuration](configuration.md)). Tag suggestion does not; see below.
+
 ### `POST /api/ai/slug`
 
 | Field  | Type | Notes                                  |
@@ -108,15 +110,29 @@ Errors:
 
 Response: `{"slug": "...", "source": "ai" | "fallback"}`. Always 200 — falls back to rule-based slugify.
 
+### `POST /api/ai/description`
+
+| Field  | Type | Notes                                    |
+| ------ | ---- | ----------------------------------------- |
+| `text` | form | Required. Title + content to summarize.  |
+
+Response: `{"description": "...", "source": "ai"}`. 503 with `{"description": "", "source": "error"}` when the chat backend is unreachable or returns nothing usable — no fallback for a summary.
+
 ### `POST /api/ai/tags`
 
 | Field  | Type | Notes                |
 | ------ | ---- | -------------------- |
 | `text` | form | Required. Post body. |
 
-Response: `{"suggestions": [{"tag": "...", "known": bool}, ...], "source": "ai"}`.
+Not LLM-backed — fuzzy-matches `text` against the existing tag library (`pg_trgm` word similarity). Response: `{"suggestions": [{"tag": "...", "known": true}, ...], "source": "library"}`. 500 on a database error — no fallback.
 
-503 when Ollama is unreachable — no fallback for tags.
+## Web search
+
+### `GET /api/search?q=<query>`
+
+Proxies a search to the configured SearXNG instance (`SEARXNG_URL`). Used by the notes editor's inline "search the web" panel to find a source and insert it as a markdown link.
+
+Response: `{"results": [{"title": "...", "url": "...", "content": "..."}, ...]}` (up to 8). 400 on an empty query, 502 if SearXNG is unreachable or returns something unusable.
 
 ## Geocoding
 

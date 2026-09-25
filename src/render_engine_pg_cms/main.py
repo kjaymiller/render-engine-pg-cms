@@ -39,11 +39,12 @@ from .webmention import (
 from .azure_blob import AzureUploadError, upload_bytes as upload_to_azure
 from .azure_blob import _slugify as _slugify_loose
 from .image_optimize import optimize as optimize_image
-from .ollama import (
-    OllamaError,
-    suggest_slug as ollama_suggest_slug,
-    suggest_description as ollama_suggest_description,
+from .llm import (
+    LLMError,
+    suggest_slug as llm_suggest_slug,
+    suggest_description as llm_suggest_description,
 )
+from .searxng import SearxngError, search as searxng_search
 
 logging.basicConfig(
     level=logging.INFO,
@@ -638,7 +639,7 @@ async def upload_image(file: UploadFile = File(...)):
 
 @app.post("/api/ai/slug")
 async def ai_suggest_slug(text: str = Form(...)):
-    """Ask the local Ollama server for a URL slug for `text`.
+    """Ask the configured chat backend for a URL slug for `text`.
 
     Returns {slug, source}. `source` is "ai" when the model answered
     successfully, "fallback" when we fell back to rule-based slugify —
@@ -648,9 +649,9 @@ async def ai_suggest_slug(text: str = Form(...)):
     if not clean_input:
         return JSONResponse({"error": "empty input"}, status_code=400)
     try:
-        raw = await asyncio.to_thread(ollama_suggest_slug, cfg(), clean_input)
-    except OllamaError as exc:
-        log.info("ollama slug failed (%s); using fallback", exc)
+        raw = await asyncio.to_thread(llm_suggest_slug, cfg(), clean_input)
+    except LLMError as exc:
+        log.info("chat backend slug failed (%s); using fallback", exc)
         return {"slug": _slugify_loose(clean_input)[:80], "source": "fallback", "error": str(exc)}
     slug = _slugify_loose(raw)[:80]
     # Belt-and-braces: if the model returned something that normalized to
@@ -663,20 +664,20 @@ async def ai_suggest_slug(text: str = Form(...)):
 
 @app.post("/api/ai/description")
 async def ai_suggest_description(text: str = Form(...)):
-    """Generate a one-sentence summary of `text` via Ollama for use as a
-    description / excerpt. Returns {description, source}. `source` is "ai"
-    on success or "error" if Ollama failed (the field is left empty so
-    the user can write their own).
+    """Generate a one-sentence summary of `text` via the configured chat
+    backend for use as a description / excerpt. Returns {description,
+    source}. `source` is "ai" on success or "error" if the backend failed
+    (the field is left empty so the user can write their own).
     """
     clean_input = (text or "").strip()
     if not clean_input:
         return JSONResponse({"error": "empty input"}, status_code=400)
     try:
         summary = await asyncio.to_thread(
-            ollama_suggest_description, cfg(), clean_input,
+            llm_suggest_description, cfg(), clean_input,
         )
-    except OllamaError as exc:
-        log.warning("ollama description failed: %s", exc)
+    except LLMError as exc:
+        log.warning("chat backend description failed: %s", exc)
         return JSONResponse(
             {"error": str(exc), "source": "error", "description": ""},
             status_code=503,
@@ -739,6 +740,20 @@ async def tag_complete(q: str = ""):
         log.warning("tag complete failed: %s", exc, exc_info=True)
         return JSONResponse({"matches": []}, status_code=500)
     return {"matches": names}
+
+
+@app.get("/api/search")
+async def search_web(q: str = ""):
+    """Web search via SearXNG, for the notes editor's inline link-insert
+    panel. Returns up to 8 {title, url, content} results."""
+    q = (q or "").strip()
+    if not q:
+        return JSONResponse({"error": "empty query"}, status_code=400)
+    try:
+        results = await asyncio.to_thread(searxng_search, cfg(), q)
+    except SearxngError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    return {"results": results}
 
 
 @app.get("/c/{name}", response_class=HTMLResponse)

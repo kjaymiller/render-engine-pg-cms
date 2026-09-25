@@ -59,7 +59,7 @@ Open <http://localhost:8000>. You'll see a unified timeline (empty for now) and 
 1. Click `microblog` in the masthead (or whichever short-form type your site has).
 2. Click **New**.
 3. Fill in `content`. Notice that as you type a `title` (if your type has one), the `slug` field auto-populates.
-4. Click the sparkle next to `slug` for an AI suggestion (requires Ollama — skip if you haven't set it up).
+4. Click the sparkle next to `slug` for an AI suggestion (requires a configured chat backend — skip if you haven't set one up).
 5. Drag an image onto the `content` textarea to upload + insert a markdown link (requires Azure Blob — skip if not configured).
 6. Add a diagram with a ` ```mermaid ` fenced code block — it renders live in the preview pane and in the feeds. See the [Mermaid docs](https://mermaid.js.org/intro/) for the syntax.
 7. Click **Save**.

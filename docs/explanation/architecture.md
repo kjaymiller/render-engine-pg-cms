@@ -25,7 +25,7 @@ The cost: the CMS has to parse SQL well enough to learn the column list and pick
 | `src/render_engine_pg_cms/webmention.py` | webmention.io client + sync loop                    |
 | `src/render_engine_pg_cms/azure_blob.py` | Azure upload + URL builder                          |
 | `src/render_engine_pg_cms/image_optimize.py` | Pillow resize + re-encode                       |
-| `src/render_engine_pg_cms/ollama.py`  | Local LLM client (slug/tags)                           |
+| `src/render_engine_pg_cms/llm.py`     | Chat-completions-compatible LLM client (slug/description) |
 | `src/render_engine_pg_cms/mastodon.py`/`bluesky.py` | API clients for syndication              |
 | `src/render_engine_pg_cms/github.py`  | `workflow_dispatch` trigger                            |
 | `src/render_engine_pg_cms/templates/` | Jinja2 views                                           |

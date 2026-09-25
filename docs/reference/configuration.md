@@ -67,12 +67,17 @@ The CMS reads configuration from environment variables plus the site's `pyprojec
 | `AZURE_STORAGE_CONTAINER`         | Container name (required). Blobs land at the container root.         | —       |
 | `AZURE_PUBLIC_BASE_URL`           | Optional CDN/custom-domain prefix.                                   | —       |
 
-## Ollama (AI slug + tag suggestions)
+## Chat backend (AI slug + description suggestions)
 
-| Variable       | Purpose                                       | Default                  |
-| -------------- | --------------------------------------------- | ------------------------ |
-| `OLLAMA_URL`   | Ollama HTTP endpoint.                         | `http://localhost:11434` |
-| `OLLAMA_MODEL` | Model tag (must be pulled via `ollama pull`). | `llama3.2:3b`            |
+Any server that speaks the OpenAI chat-completions protocol works — vLLM,
+MLX (omlx), llama.cpp's server, Ollama, OpenRouter, OpenAI itself.
+
+| Variable                | Purpose                                                                   | Default |
+| ------------------------ | -------------------------------------------------------------------------- | ------- |
+| `CHAT_BASE_URL`          | Base URL, up to and including `/v1` if the server expects it. `/chat/completions` is appended. | — |
+| `CHAT_MODEL`             | Model id exactly as the server reports it via `GET /v1/models`.            | —       |
+| `CHAT_API_KEY`           | Optional. Omitted from the request entirely when unset.                    | —       |
+| `CHAT_DISABLE_THINKING`  | `"true"` to render the chat template with thinking off, for reasoning models (e.g. Qwen3) that would otherwise spend the response on reasoning content nobody reads. Not part of the OpenAI protocol proper — a server that doesn't understand the field may reject the whole request, so it's opt-in per deployment. | `false` |
 
 ## Secrets (fnox + age)
 
@@ -88,6 +93,7 @@ BLUESKY_APP_PASSWORD
 GITHUB_TOKEN
 AZURE_STORAGE_CONNECTION_STRING
 CMS_API_TOKEN
+CHAT_API_KEY
 ```
 
 Set or rotate a value (reads from stdin, never touches shell history):

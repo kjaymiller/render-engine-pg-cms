@@ -76,9 +76,15 @@ class Config:
     azure_storage_key: str = ""
     azure_storage_container: str = ""
     azure_public_base_url: str = ""
-    # Local Ollama server for AI slug suggestions
-    ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2:3b"
+    # OpenAI-chat-completions-compatible server, for AI slug/description
+    # suggestions (vLLM, MLX/omlx, llama.cpp, Ollama, OpenRouter, ... all
+    # speak this protocol)
+    chat_base_url: str = ""
+    chat_model: str = ""
+    chat_api_key: str = ""
+    chat_disable_thinking: bool = False
+    # SearXNG instance for the notes editor's inline web-search panel
+    searxng_url: str = "https://search.kjaymiller.dev"
 
 
 _TABLE_RE = re.compile(r"INSERT\s+INTO\s+(\w+)", re.IGNORECASE)
@@ -150,6 +156,9 @@ def load_config(pyproject_path: Path | None = None) -> Config:
         azure_storage_key=os.environ.get("AZURE_STORAGE_KEY", ""),
         azure_storage_container=os.environ.get("AZURE_STORAGE_CONTAINER", ""),
         azure_public_base_url=os.environ.get("AZURE_PUBLIC_BASE_URL", "").rstrip("/"),
-        ollama_url=os.environ.get("OLLAMA_URL", "http://localhost:11434"),
-        ollama_model=os.environ.get("OLLAMA_MODEL", "llama3.2:3b"),
+        chat_base_url=os.environ.get("CHAT_BASE_URL", "").rstrip("/"),
+        chat_model=os.environ.get("CHAT_MODEL", ""),
+        chat_api_key=os.environ.get("CHAT_API_KEY", "").strip(),
+        chat_disable_thinking=os.environ.get("CHAT_DISABLE_THINKING", "") == "true",
+        searxng_url=os.environ.get("SEARXNG_URL", "https://search.kjaymiller.dev"),
     )

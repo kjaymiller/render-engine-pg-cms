@@ -6,7 +6,7 @@ A lightweight FastAPI CMS for [render-engine](https://github.com/render-engine/r
 - Syndicates posts to [Mastodon](docs/how-to/syndicate-to-mastodon.md) and [Bluesky](docs/how-to/syndicate-to-bluesky.md) from a single modal, with a canonical-URL append toggle.
 - Tracks [webmentions](docs/how-to/sync-webmentions.md) from bridgy with a live-progress sync log, per-type breakdown (♥ / 🔁 / 💬), and auto-refresh.
 - Drag-and-drop [image uploads](docs/how-to/upload-images.md) to Azure Blob Storage with server-side resize + WebP/JPEG re-encoding.
-- [AI slug and tag suggestions](docs/explanation/ai-suggestions.md) from a local Ollama server.
+- [AI slug and description suggestions](docs/explanation/ai-suggestions.md) from any OpenAI-chat-completions-compatible server (vLLM, MLX/omlx, llama.cpp, Ollama, OpenRouter, ...).
 - [Auto-publish](docs/how-to/trigger-a-publish.md) via GitHub Actions on save, with trailing-edge debounce.
 
 ## Quick start
@@ -66,7 +66,7 @@ src/render_engine_pg_cms/
   webmention.py        webmention.io client + sync loop
   azure_blob.py        Azure upload + URL builder
   image_optimize.py    Pillow resize + re-encode
-  ollama.py            local LLM client (slug/tags)
+  llm.py               chat-completions-compatible LLM client (slug/description)
   mastodon.py          toot API client
   bluesky.py           AT Protocol client
   github.py            workflow_dispatch trigger

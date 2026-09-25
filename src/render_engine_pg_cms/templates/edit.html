@@ -395,7 +395,8 @@
       },
     }));
 
-    // Reference-link autopilot for the content textarea.
+    // Reference-link sync for the content textarea, run via the "Fetch
+    // Links" button.
     //
     // Writing `[link]`, `[text][ref]` or `[text][]` in the body means markdown
     // is looking for a matching `[ref]: url` definition. This keeps that block
@@ -520,14 +521,7 @@
     };
 
     Alpine.data("linkRefs", () => ({
-      _timer: null,
       _stash: new Map(),
-      onInput(el) {
-        clearTimeout(this._timer);
-        // Settle before rewriting so we aren't reshuffling the document
-        // between keystrokes.
-        this._timer = setTimeout(() => this.sync(el), 600);
-      },
       sync(el) {
         const before = el.value;
         let after;
@@ -556,6 +550,54 @@
         el.value = after;
         el.setSelectionRange(remap(pos), remap(end));
         el.dispatchEvent(new Event("input", { bubbles: true }));
+      },
+    }));
+
+    // Inline SearXNG search panel for the notes editor. Search, then click
+    // a result to insert it as a markdown link at the cursor.
+    Alpine.data("searxSearch", () => ({
+      q: "",
+      results: [],
+      busy: false,
+      msg: "",
+      level: "",
+      async run() {
+        const q = (this.q || "").trim();
+        if (!q) { this.msg = "Enter a search query."; this.level = "err"; return; }
+        this.busy = true; this.msg = ""; this.level = ""; this.results = [];
+        try {
+          const r = await fetch("/api/search?q=" + encodeURIComponent(q));
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            this.msg = data.error || `Search failed (${r.status})`;
+            this.level = "err";
+            return;
+          }
+          this.results = data.results || [];
+          if (!this.results.length) { this.msg = "No results."; this.level = "err"; }
+        } catch (e) {
+          this.msg = "Network error: " + e.message;
+          this.level = "err";
+        } finally {
+          this.busy = false;
+        }
+      },
+      insert(result) {
+        const form = this.$root.closest("form");
+        const ta = form && form.querySelector('textarea[name="content"]');
+        if (!ta) return;
+        const snippet = `[${result.title}](${result.url})`;
+        const start = ta.selectionStart ?? ta.value.length;
+        const end = ta.selectionEnd ?? ta.value.length;
+        ta.value = ta.value.slice(0, start) + snippet + ta.value.slice(end);
+        const pos = start + snippet.length;
+        ta.focus();
+        ta.setSelectionRange(pos, pos);
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        this.results = [];
+        this.q = "";
+        this.msg = "Inserted.";
+        this.level = "ok";
       },
     }));
 
@@ -632,7 +674,7 @@
             return;
           }
           this.description = data.description;
-          this.descSuggestMsg = "Generated via Ollama. Edit as needed.";
+          this.descSuggestMsg = "Generated via AI. Edit as needed.";
           this.descSuggestLevel = "ok";
         } catch (e) {
           this.descSuggestMsg = "Network error: " + e.message;
@@ -673,8 +715,8 @@
           this.slug = data.slug;
           this.slugTouched = true;
           this.slugSuggestMsg = data.source === "fallback"
-            ? "Used rule-based fallback (Ollama unreachable)."
-            : "Generated via Ollama.";
+            ? "Used rule-based fallback (chat backend unreachable)."
+            : "Generated via AI.";
           this.slugSuggestLevel = data.source === "fallback" ? "warn" : "ok";
         } catch (e) {
           this.slugSuggestMsg = "Network error: " + e.message;
@@ -726,12 +768,17 @@
              @dragover="onDragOver($event)"
              @dragleave="onDragLeave($event)"
              @drop="onDrop($event)">
-          <textarea name="content" rows="{{ content_rows }}"
-                    x-data="linkRefs"
-                    @paste="onPaste($event)"
-                    @input="onInput($event.target)"
-                    @blur="sync($event.target)"
-          >{{ val or "" }}</textarea>
+          <div x-data="linkRefs" class="content-editor">
+            <div class="content-toolbar">
+              <button type="button" class="secondary" @click="sync($refs.content)">
+                Fetch Links
+              </button>
+            </div>
+            <textarea name="content" rows="{{ content_rows }}"
+                      x-ref="content"
+                      @paste="onPaste($event)"
+            >{{ val or "" }}</textarea>
+          </div>
           <small class="drop-hint" x-text="status || 'Drop or paste an image to upload'"
                  :class="level ? 'drop-' + level : ''"></small>
         </div>
@@ -839,6 +886,35 @@
       {% if err %}<small class="field-error">{{ err }}</small>{% endif %}
     </label>
   {% endfor %}
+
+  {% if ct.name == "notes" %}
+    <div class="searx-panel" x-data="searxSearch">
+      <label>
+        <span>Search the web (SearXNG)</span>
+        <div class="searx-row">
+          <input type="text" x-model="q" placeholder="Search for a source to link…"
+                 @keydown.enter.prevent="run()">
+          <button type="button" class="secondary" :disabled="busy" @click="run()">
+            <span x-show="!busy">Search</span>
+            <span x-show="busy" x-cloak>Searching…</span>
+          </button>
+        </div>
+      </label>
+      <small class="searx-hint muted" x-show="msg"
+             :class="level ? 'searx-' + level : ''" x-text="msg"></small>
+      <ul class="searx-results" x-show="results.length" x-cloak>
+        <template x-for="r in results" :key="r.url">
+          <li>
+            <button type="button" class="searx-result" @click="insert(r)">
+              <span class="searx-result-title" x-text="r.title"></span>
+              <span class="searx-result-url" x-text="r.url"></span>
+              <span class="searx-result-snippet" x-text="r.content"></span>
+            </button>
+          </li>
+        </template>
+      </ul>
+    </div>
+  {% endif %}
 
   {% if ct.name in ("microblog", "blog", "notes") %}
     <label class="draft-toggle">
