@@ -3,6 +3,7 @@
 Bearer-token auth via `CMS_API_TOKEN`. All routes return JSON.
 Mounted under /api/v1 from main.py.
 """
+
 from __future__ import annotations
 
 import hmac
@@ -33,7 +34,7 @@ def require_token(authorization: str | None = Header(default=None)) -> None:
     expected = _expected_token()
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing bearer token.")
-    given = authorization[len("Bearer "):]
+    given = authorization[len("Bearer ") :]
     if not hmac.compare_digest(given, expected):
         raise HTTPException(401, "Invalid token.")
 
@@ -41,6 +42,7 @@ def require_token(authorization: str | None = Header(default=None)) -> None:
 # Lazy import of cfg() to avoid a circular import with main.py.
 def _cfg():
     from .main import cfg
+
     return cfg()
 
 
@@ -108,7 +110,7 @@ def list_records(
         raise HTTPException(400, f"status must be one of {VALID_STATUSES}")
     ct = _ct(name)
     rows = db.list_records(_cfg(), ct, status=status)
-    return {"total": len(rows), "records": rows[offset:offset + limit]}
+    return {"total": len(rows), "records": rows[offset : offset + limit]}
 
 
 @router.get("/c/{name}/{record_id}", dependencies=[Depends(require_token)])
@@ -141,14 +143,13 @@ def create_record(name: str, payload: dict = Body(...)) -> dict:
             created = db.get_record(_cfg(), ct, rows[0]["id"])
     # Fire the same auto-publish debounce the form handler uses.
     from .main import schedule_autopublish
+
     schedule_autopublish(values)
     return {"created": created or values}
 
 
 @router.patch("/c/{name}/{record_id}", dependencies=[Depends(require_token)])
-def update_record(
-    name: str, record_id: int, payload: dict = Body(...)
-) -> dict:
+def update_record(name: str, record_id: int, payload: dict = Body(...)) -> dict:
     ct = _ct(name)
     values, tags = _coerce_values(payload, ct)
     try:
@@ -156,6 +157,7 @@ def update_record(
     except psycopg.Error as exc:
         raise HTTPException(400, _db_error(exc))
     from .main import schedule_autopublish
+
     schedule_autopublish(values)
     row = db.get_record(_cfg(), ct, record_id)
     if row is None:
@@ -181,7 +183,9 @@ def delete_record(name: str, record_id: int) -> None:
     dependencies=[Depends(require_token)],
 )
 def syndicate(
-    name: str, record_id: int, payload: dict = Body(default={}),
+    name: str,
+    record_id: int,
+    payload: dict = Body(default={}),
 ) -> dict:
     ct = _ct(name)
     record = db.get_record(_cfg(), ct, record_id)
@@ -197,6 +201,7 @@ def syndicate(
         raise HTTPException(400, "Set `mastodon: true` and/or `bluesky: true`.")
 
     from .main import _pick_image
+
     image_url, alt = _pick_image(ct.name, record)
     out: dict = {"mastodon": None, "bluesky": None, "errors": {}}
 
@@ -217,7 +222,10 @@ def syndicate(
         else:
             try:
                 b = post_to_bluesky_api(
-                    _cfg(), text, image_url=image_url, image_alt=alt,
+                    _cfg(),
+                    text,
+                    image_url=image_url,
+                    image_alt=alt,
                 )
                 if b.get("url"):
                     db.set_bluesky_url(_cfg(), ct, record_id, b["url"])
@@ -235,6 +243,7 @@ def publish() -> dict:
     except GitHubError as exc:
         raise HTTPException(502, str(exc))
     from .main import _mark_publish_dispatched
+
     _mark_publish_dispatched()
     return {"dispatched": True}
 

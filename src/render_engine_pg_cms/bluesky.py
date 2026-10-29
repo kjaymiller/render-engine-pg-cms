@@ -1,4 +1,5 @@
 """Minimal Bluesky (atproto) client — post a status (optionally with image)."""
+
 from __future__ import annotations
 
 import re
@@ -94,17 +95,18 @@ def _upload_blob(sess: _Session, image_url: str) -> dict[str, Any]:
 def _build_facets(text: str) -> list[dict[str, Any]]:
     """Detect URLs and emit atproto link facets so they're clickable."""
     facets: list[dict[str, Any]] = []
-    # Use bytes offsets, per atproto spec.
-    text_bytes = text.encode("utf-8")
+    # Byte offsets, per atproto spec.
     for m in URL_RE.finditer(text):
         start = len(text[: m.start()].encode("utf-8"))
         end = len(text[: m.end()].encode("utf-8"))
-        facets.append({
-            "index": {"byteStart": start, "byteEnd": end},
-            "features": [
-                {"$type": "app.bsky.richtext.facet#link", "uri": m.group(0)}
-            ],
-        })
+        facets.append(
+            {
+                "index": {"byteStart": start, "byteEnd": end},
+                "features": [
+                    {"$type": "app.bsky.richtext.facet#link", "uri": m.group(0)}
+                ],
+            }
+        )
     return facets
 
 
@@ -121,7 +123,7 @@ def _fit_text(text: str) -> str:
     urls = list(URL_RE.finditer(text))
     if urls:
         last = urls[-1]
-        tail = text[last.start():].rstrip()
+        tail = text[last.start() :].rstrip()
         if len(tail) + 2 < MAX_CHARS:
             budget = MAX_CHARS - len(tail) - 2
             head = text[: last.start()].rstrip()
@@ -178,7 +180,6 @@ def post_status(
     uri = data.get("uri", "")  # at://did:plc:.../app.bsky.feed.post/<rkey>
     rkey = uri.rsplit("/", 1)[-1] if uri else ""
     web_url = (
-        f"https://bsky.app/profile/{cfg.bluesky_handle}/post/{rkey}"
-        if rkey else ""
+        f"https://bsky.app/profile/{cfg.bluesky_handle}/post/{rkey}" if rkey else ""
     )
     return {"uri": uri, "cid": data.get("cid", ""), "url": web_url}

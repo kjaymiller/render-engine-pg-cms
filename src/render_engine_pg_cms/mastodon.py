@@ -1,4 +1,5 @@
 """Minimal Mastodon client — post a status (optionally with media) and return the URL."""
+
 from __future__ import annotations
 
 import time
@@ -56,8 +57,11 @@ def _upload_media(cfg: Config, image_url: str, alt: str = "") -> str:
     data = {"description": alt[:1500]} if alt else {}
     try:
         up = httpx.post(
-            upload_url, files=files, data=data,
-            headers=_headers(cfg), timeout=60.0,
+            upload_url,
+            files=files,
+            data=data,
+            headers=_headers(cfg),
+            timeout=60.0,
         )
     except httpx.HTTPError as exc:
         raise MastodonError(f"Network error uploading media: {exc}") from exc

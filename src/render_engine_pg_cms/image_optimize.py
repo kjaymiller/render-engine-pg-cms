@@ -8,6 +8,7 @@ Goals:
   - Leave SVG and GIF untouched — SVG is already text-compressible, and
     re-encoding animated GIFs would silently drop frames.
 """
+
 from __future__ import annotations
 
 import io
@@ -52,7 +53,9 @@ def optimize(
         if w * h > MAX_DECODE_PIXELS:
             log.warning(
                 "image too large to decode safely (%dx%d = %d px); passing through",
-                w, h, w * h,
+                w,
+                h,
+                w * h,
             )
             return data, content_type
         img.load()
@@ -104,7 +107,8 @@ def optimize(
     if len(optimized) >= len(data):
         log.info(
             "optimize produced larger output (%d vs %d); keeping original",
-            len(optimized), len(data),
+            len(optimized),
+            len(data),
         )
         return data, content_type
     return optimized, new_type

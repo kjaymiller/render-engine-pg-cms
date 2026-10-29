@@ -10,6 +10,7 @@ Config (env vars, wired through Config in config.py):
 Public API:
   upload_bytes(cfg, data, content_type, filename_hint) -> public_url
 """
+
 from __future__ import annotations
 
 import mimetypes
@@ -129,9 +130,7 @@ def upload_bytes(
 
     blob_name = _blob_name(filename_hint, content_type)
     client = _client(cfg)
-    blob = client.get_blob_client(
-        container=cfg.azure_storage_container, blob=blob_name
-    )
+    blob = client.get_blob_client(container=cfg.azure_storage_container, blob=blob_name)
     blob.upload_blob(
         data,
         overwrite=False,

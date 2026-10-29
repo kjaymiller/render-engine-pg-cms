@@ -93,3 +93,13 @@ rm -f pg-cms-quick-capture.xpi
 cd extension && zip -r ../pg-cms-quick-capture.xpi . -x "*.DS_Store"
 echo "→ pg-cms-quick-capture.xpi ready. Load it in Zen via about:debugging → Load Temporary Add-on."
 """
+
+# Docker-free gates for the software factory: its workcells run these directly with uv
+# (no Docker socket in a cell), against a throwaway database when one is needed.
+[tasks.ci-lint]
+description = "Factory gate: ruff check + format check"
+run = "uv run ruff check && uv run ruff format --check"
+
+[tasks.ci-test]
+description = "Factory gate: pytest without Docker"
+run = "uv run pytest -q"

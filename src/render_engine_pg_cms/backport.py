@@ -12,6 +12,7 @@ Usage:
   just backport-syndication          # dry-run, prints proposed matches
   just backport-syndication apply    # writes matches to the database
 """
+
 from __future__ import annotations
 
 import re
@@ -31,6 +32,7 @@ TITLE_PREFIX_LEN = 80
 
 
 # ---------- Normalization ----------
+
 
 class _TagStripper(HTMLParser):
     def __init__(self) -> None:
@@ -74,7 +76,9 @@ def _record_signature(ct_name: str, record: dict) -> tuple[str, int]:
     Blog/notes → title. Microblog → content (up to ~280 chars).
     """
     if ct_name == "microblog":
-        return _prefix(record.get("content") or "", MICROBLOG_PREFIX_LEN), MICROBLOG_PREFIX_LEN
+        return _prefix(
+            record.get("content") or "", MICROBLOG_PREFIX_LEN
+        ), MICROBLOG_PREFIX_LEN
     title = record.get("title") or record.get("name") or ""
     return _prefix(title, TITLE_PREFIX_LEN), TITLE_PREFIX_LEN
 
@@ -88,6 +92,7 @@ def _build_record_url(cfg: Config, ct_name: str, record: dict) -> str:
 
 
 # ---------- Fetchers ----------
+
 
 def _mastodon_statuses(cfg: Config) -> list[dict[str, Any]]:
     if not cfg.mastodon_instance or not cfg.mastodon_access_token:
@@ -159,6 +164,7 @@ def _bluesky_posts(cfg: Config) -> list[dict[str, Any]]:
 
 # ---------- Matchers ----------
 
+
 def _candidate_links(cfg: Config, ct_name: str, record: dict) -> list[str]:
     out: list[str] = []
     ext = (record.get("external_link") or "").strip()
@@ -209,7 +215,7 @@ def _match_bluesky(
         record_val = post.get("record", {}) or {}
         text = record_val.get("text") or ""
         embed = record_val.get("embed") or {}
-        ext_uri = ((embed.get("external") or {}).get("uri") or "")
+        ext_uri = (embed.get("external") or {}).get("uri") or ""
         haystack = f"{text} {ext_uri}"
         if any(link and link in haystack for link in links):
             return _bsky_url_for(cfg, post)
@@ -227,6 +233,7 @@ def _bsky_url_for(cfg: Config, post: dict) -> str:
 
 
 # ---------- Driver ----------
+
 
 def _records_missing(cfg: Config, ct: ContentType, column: str) -> list[dict]:
     with psycopg.connect(cfg.connection_string, row_factory=dict_row) as conn:
@@ -256,12 +263,16 @@ def backport(apply: bool = False) -> None:
             continue
 
         for column, matcher, label in (
-            ("mastodon_url",
-             lambda r, _n=name: _match_mastodon(cfg, _n, r, mastodon_statuses),
-             "Mastodon"),
-            ("bluesky_url",
-             lambda r, _n=name: _match_bluesky(cfg, _n, r, bluesky_posts),
-             "Bluesky"),
+            (
+                "mastodon_url",
+                lambda r, _n=name: _match_mastodon(cfg, _n, r, mastodon_statuses),
+                "Mastodon",
+            ),
+            (
+                "bluesky_url",
+                lambda r, _n=name: _match_bluesky(cfg, _n, r, bluesky_posts),
+                "Bluesky",
+            ),
         ):
             records = _records_missing(cfg, ct, column)
             if not records:

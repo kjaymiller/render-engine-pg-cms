@@ -1,4 +1,5 @@
 """FastAPI CMS for render-engine PostgreSQL content."""
+
 from __future__ import annotations
 
 import asyncio
@@ -107,9 +108,7 @@ WEBMENTION_SYNC_INTERVAL = int(os.environ.get("WEBMENTION_SYNC_INTERVAL", "21600
 # Auto-loop only touches posts within this many days. Old posts rarely pick
 # up new mentions; the manual "Sync now" button still hits every record.
 # Set to 0 to disable the filter and let the loop sync everything.
-WEBMENTION_AUTO_MAX_AGE_DAYS = int(
-    os.environ.get("WEBMENTION_AUTO_MAX_AGE_DAYS", "60")
-)
+WEBMENTION_AUTO_MAX_AGE_DAYS = int(os.environ.get("WEBMENTION_AUTO_MAX_AGE_DAYS", "60"))
 
 # Trailing-edge debounce on auto-publish after a record create/update.
 # Rapid-fire saves within this window collapse into a single workflow run.
@@ -142,6 +141,7 @@ def _record_is_live(record: dict) -> bool:
         # Compare as naive when the value is naive, tz-aware otherwise.
         if hasattr(d, "tzinfo") and d.tzinfo is not None:
             from datetime import timezone as _tz
+
             return d <= datetime.now(_tz.utc)
         return d <= datetime.utcnow()
     except TypeError:
@@ -185,16 +185,17 @@ def schedule_autopublish(record: dict) -> None:
         _pending_publish_task.cancel()
     _pending_publish_task = asyncio.create_task(_dispatch_autopublish())
 
+
 # In-memory status for the UI. Not persisted across restarts — acceptable for
 # an admin tool; on restart the next auto-run repopulates it.
 _sync_state: dict = {
     "running": False,
     "started_at": None,
     "finished_at": None,
-    "trigger": None,      # "auto" | "manual"
+    "trigger": None,  # "auto" | "manual"
     "total_expected": 0,  # set upfront once we know how many rows to hit
-    "processed": 0,       # increments per record as the sync progresses
-    "results": [],        # appended as each record finishes
+    "processed": 0,  # increments per record as the sync progresses
+    "results": [],  # appended as each record finishes
     "last_update": None,  # ISO ts; bumped on every per-record callback
     "error": None,
 }
@@ -224,6 +225,7 @@ def _run_sync_blocking(trigger: str) -> None:
         last_update=_now_iso(),
     )
     try:
+
         def on_start(total: int) -> None:
             _sync_state["total_expected"] = total
             _sync_state["last_update"] = _now_iso()
@@ -235,18 +237,19 @@ def _run_sync_blocking(trigger: str) -> None:
 
         # Auto-runs restrict to recent posts to avoid rate-limiting on every
         # cycle; manual runs (triggered from the UI) hit every record.
-        max_age = (
-            WEBMENTION_AUTO_MAX_AGE_DAYS or None
-            if trigger == "auto" else None
-        )
+        max_age = WEBMENTION_AUTO_MAX_AGE_DAYS or None if trigger == "auto" else None
         sync_all_webmentions(
-            cfg(), max_age_days=max_age,
-            on_start=on_start, on_record=on_record,
+            cfg(),
+            max_age_days=max_age,
+            on_start=on_start,
+            on_record=on_record,
         )
         ok = sum(1 for r in _sync_state["results"] if r["error"] is None)
         log.info(
             "webmention sync (%s): %d/%d refreshed",
-            trigger, ok, len(_sync_state["results"]),
+            trigger,
+            ok,
+            len(_sync_state["results"]),
         )
     except Exception as exc:
         _sync_state["error"] = str(exc)
@@ -284,6 +287,7 @@ async def _webmention_sync_loop() -> None:
         last = None
     if last is not None:
         from datetime import timezone as _tz
+
         now = datetime.now(_tz.utc) if last.tzinfo else datetime.utcnow()
         try:
             elapsed = (now - last).total_seconds()
@@ -293,7 +297,8 @@ async def _webmention_sync_loop() -> None:
         if initial_delay > 0:
             log.info(
                 "deferring first webmention sync: last run %ds ago, waiting %ds",
-                int(elapsed), int(initial_delay),
+                int(elapsed),
+                int(initial_delay),
             )
 
     if initial_delay > 0:
@@ -336,6 +341,7 @@ app = FastAPI(title="render-engine-pg-cms", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 from .api import router as api_router  # noqa: E402 — avoid circular at import time
+
 app.include_router(api_router)
 
 SKIP_COLUMNS = {"id", "created_at", "updated_at"}
@@ -360,7 +366,9 @@ def _ct(name: str) -> ContentType:
 
 
 def _social_context(
-    ct_name: str, record: dict, tags: list[str],
+    ct_name: str,
+    record: dict,
+    tags: list[str],
 ) -> tuple[str, str | None, str, str]:
     """Compute the publish-to-social modal inputs for a record.
 
@@ -372,7 +380,9 @@ def _social_context(
     image_url, image_alt = _pick_image(ct_name, record)
     try:
         canonical = build_webmention_target_url(
-            cfg(), ct_name, record.get("slug") or "",
+            cfg(),
+            ct_name,
+            record.get("slug") or "",
         )
     except Exception:  # noqa: BLE001
         canonical = ""
@@ -392,9 +402,7 @@ def _render_edit(
     status_code: int = 200,
 ):
     can_syndicate = ct.name in ("microblog", "blog")
-    has_mastodon = (
-        not is_new and can_syndicate and bool(cfg().mastodon_instance)
-    )
+    has_mastodon = not is_new and can_syndicate and bool(cfg().mastodon_instance)
     has_bluesky = (
         not is_new
         and can_syndicate
@@ -438,6 +446,7 @@ def _annotate_scheduled(rows: list[dict]) -> None:
     publish `date` in the future. Used by the list templates to badge them.
     """
     from datetime import timezone as _tz
+
     now_aware = datetime.now(_tz.utc)
     now_naive = datetime.utcnow()
     for r in rows:
@@ -467,8 +476,7 @@ def index(
         status = "all"
     # Only include types with temporal content on the timeline.
     timeline_types = [
-        n for n in ("microblog", "blog", "notes")
-        if n in cfg().content_types
+        n for n in ("microblog", "blog", "notes") if n in cfg().content_types
     ]
     # Aggregate counts across timeline types for the status tabs.
     status_counts = {k: 0 for k in VALID_STATUSES}
@@ -482,7 +490,7 @@ def index(
     pages = max(1, (total + per - 1) // per)
     page = min(page, pages)
     start = (page - 1) * per
-    rows = all_rows[start:start + per]
+    rows = all_rows[start : start + per]
     mastodon_enabled = bool(cfg().mastodon_instance)
     bluesky_enabled = bool(cfg().bluesky_handle and cfg().bluesky_app_password)
     # Annotate each timeline row with the same social-publish context the
@@ -530,6 +538,7 @@ def geocode(q: str):
     match as {display_name, lat, lon}. 404 if nothing found.
     """
     import httpx
+
     q = (q or "").strip()
     if not q:
         return JSONResponse({"error": "empty query"}, status_code=400)
@@ -538,8 +547,7 @@ def geocode(q: str):
         with httpx.Client(timeout=8.0, headers=headers) as client:
             r = client.get(
                 "https://nominatim.openstreetmap.org/search",
-                params={"q": q, "format": "json", "limit": 1,
-                        "addressdetails": 1},
+                params={"q": q, "format": "json", "limit": 1, "addressdetails": 1},
             )
             r.raise_for_status()
             hits = r.json()
@@ -594,7 +602,11 @@ async def upload_image(file: UploadFile = File(...)):
 
     try:
         url = await asyncio.to_thread(
-            upload_to_azure, cfg(), data, new_content_type, file.filename,
+            upload_to_azure,
+            cfg(),
+            data,
+            new_content_type,
+            file.filename,
         )
     except AzureUploadError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
@@ -628,13 +640,20 @@ async def ai_suggest_slug(text: str = Form(...)):
         raw = await asyncio.to_thread(ollama_suggest_slug, cfg(), clean_input)
     except OllamaError as exc:
         log.info("ollama slug failed (%s); using fallback", exc)
-        return {"slug": _slugify_loose(clean_input)[:80], "source": "fallback", "error": str(exc)}
+        return {
+            "slug": _slugify_loose(clean_input)[:80],
+            "source": "fallback",
+            "error": str(exc),
+        }
     slug = _slugify_loose(raw)[:80]
     # Belt-and-braces: if the model returned something that normalized to
     # empty (e.g. just punctuation), fall back rather than return "".
     if not slug:
-        return {"slug": _slugify_loose(clean_input)[:80], "source": "fallback",
-                "error": "model returned unusable output"}
+        return {
+            "slug": _slugify_loose(clean_input)[:80],
+            "source": "fallback",
+            "error": "model returned unusable output",
+        }
     return {"slug": slug, "source": "ai"}
 
 
@@ -650,7 +669,9 @@ async def ai_suggest_description(text: str = Form(...)):
         return JSONResponse({"error": "empty input"}, status_code=400)
     try:
         summary = await asyncio.to_thread(
-            ollama_suggest_description, cfg(), clean_input,
+            ollama_suggest_description,
+            cfg(),
+            clean_input,
         )
     except OllamaError as exc:
         log.warning("ollama description failed: %s", exc)
@@ -660,8 +681,11 @@ async def ai_suggest_description(text: str = Form(...)):
         )
     if not summary:
         return JSONResponse(
-            {"error": "model returned empty output", "source": "error",
-             "description": ""},
+            {
+                "error": "model returned empty output",
+                "source": "error",
+                "description": "",
+            },
             status_code=503,
         )
     return {"description": summary, "source": "ai"}
@@ -693,7 +717,10 @@ async def ai_suggest_tags(text: str = Form(...)):
 
     try:
         names = await asyncio.to_thread(
-            db.suggest_tags_from_text, cfg(), clean_input, 8,
+            db.suggest_tags_from_text,
+            cfg(),
+            clean_input,
+            8,
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("tag suggestion failed: %s", exc, exc_info=True)
@@ -819,20 +846,28 @@ async def create(request: Request, name: str):
     values, tags, errors = _extract(form, ct)
     if errors:
         return _render_edit(
-            request, ct, record=values, tags=tags, is_new=True,
-            errors=errors, status_code=400,
+            request,
+            ct,
+            record=values,
+            tags=tags,
+            is_new=True,
+            errors=errors,
+            status_code=400,
         )
     try:
         db.create_record(cfg(), ct, values, tags)
     except psycopg.Error as exc:
         return _render_edit(
-            request, ct, record=values, tags=tags, is_new=True,
-            form_error=_db_error_message(exc), status_code=400,
+            request,
+            ct,
+            record=values,
+            tags=tags,
+            is_new=True,
+            form_error=_db_error_message(exc),
+            status_code=400,
         )
     schedule_autopublish(values)
-    return RedirectResponse(
-        f"/c/{name}?msg=Created&level=ok", status_code=303
-    )
+    return RedirectResponse(f"/c/{name}?msg=Created&level=ok", status_code=303)
 
 
 @app.get("/c/{name}/{record_id}", response_class=HTMLResponse)
@@ -849,8 +884,13 @@ def edit_form(
         raise HTTPException(404)
     tags = record.pop("tags", []) if ct.has_tags else []
     return _render_edit(
-        request, ct, record=record, tags=tags, is_new=False,
-        flash=msg, flash_level=level,
+        request,
+        ct,
+        record=record,
+        tags=tags,
+        is_new=False,
+        flash=msg,
+        flash_level=level,
     )
 
 
@@ -862,23 +902,29 @@ async def update(request: Request, name: str, record_id: int):
     if errors:
         values_with_id = {**values, "id": record_id}
         return _render_edit(
-            request, ct, record=values_with_id, tags=tags, is_new=False,
-            errors=errors, status_code=400,
+            request,
+            ct,
+            record=values_with_id,
+            tags=tags,
+            is_new=False,
+            errors=errors,
+            status_code=400,
         )
     try:
-        db.update_record(
-            cfg(), ct, record_id, values, tags if ct.has_tags else None
-        )
+        db.update_record(cfg(), ct, record_id, values, tags if ct.has_tags else None)
     except psycopg.Error as exc:
         values_with_id = {**values, "id": record_id}
         return _render_edit(
-            request, ct, record=values_with_id, tags=tags, is_new=False,
-            form_error=_db_error_message(exc), status_code=400,
+            request,
+            ct,
+            record=values_with_id,
+            tags=tags,
+            is_new=False,
+            form_error=_db_error_message(exc),
+            status_code=400,
         )
     schedule_autopublish(values)
-    return RedirectResponse(
-        f"/c/{name}?msg=Saved&level=ok", status_code=303
-    )
+    return RedirectResponse(f"/c/{name}?msg=Saved&level=ok", status_code=303)
 
 
 @app.post("/c/{name}/{record_id}/delete")
@@ -891,9 +937,7 @@ def delete(name: str, record_id: int):
             f"/c/{name}?msg={_db_error_message(exc)}&level=err",
             status_code=303,
         )
-    return RedirectResponse(
-        f"/c/{name}?msg=Deleted&level=ok", status_code=303
-    )
+    return RedirectResponse(f"/c/{name}?msg=Deleted&level=ok", status_code=303)
 
 
 @app.post("/c/{name}/{record_id}/mastodon")
@@ -918,18 +962,25 @@ def post_to_mastodon(name: str, record_id: int):
     image_url, alt = _pick_image(ct.name, record)
     if not text.strip() and not image_url:
         return _flash_redirect(
-            name, "Nothing to post — record has no content or image.", "err",
+            name,
+            "Nothing to post — record has no content or image.",
+            "err",
             record_id=record_id,
         )
     try:
         result = post_status(
-            cfg(), text, image_url=image_url, image_alt=alt,
+            cfg(),
+            text,
+            image_url=image_url,
+            image_alt=alt,
         )
     except MastodonError as exc:
         return _flash_redirect(name, str(exc), "err", record_id=record_id)
     db.set_mastodon_url(cfg(), ct, record_id, result["url"])
     return _flash_redirect(
-        name, f"Posted to Mastodon: {result['url']}", "ok",
+        name,
+        f"Posted to Mastodon: {result['url']}",
+        "ok",
         record_id=record_id,
     )
 
@@ -946,7 +997,9 @@ def post_to_bluesky(name: str, record_id: int):
         raise HTTPException(404)
     if record.get("bluesky_url"):
         return _flash_redirect(
-            name, f"Already posted to Bluesky: {record['bluesky_url']}", "err",
+            name,
+            f"Already posted to Bluesky: {record['bluesky_url']}",
+            "err",
             record_id=record_id,
         )
     tags = record.get("tags", []) if ct.has_tags else []
@@ -954,19 +1007,26 @@ def post_to_bluesky(name: str, record_id: int):
     image_url, alt = _pick_image(ct.name, record)
     if not text.strip() and not image_url:
         return _flash_redirect(
-            name, "Nothing to post — record has no content or image.", "err",
+            name,
+            "Nothing to post — record has no content or image.",
+            "err",
             record_id=record_id,
         )
     try:
         result = post_to_bluesky_api(
-            cfg(), text, image_url=image_url, image_alt=alt,
+            cfg(),
+            text,
+            image_url=image_url,
+            image_alt=alt,
         )
     except BlueskyError as exc:
         return _flash_redirect(name, str(exc), "err", record_id=record_id)
     if result.get("url"):
         db.set_bluesky_url(cfg(), ct, record_id, result["url"])
     return _flash_redirect(
-        name, f"Posted to Bluesky: {result.get('url', result.get('uri'))}", "ok",
+        name,
+        f"Posted to Bluesky: {result.get('url', result.get('uri'))}",
+        "ok",
         record_id=record_id,
     )
 
@@ -989,7 +1049,9 @@ def publish_social(
     want_bluesky = bool(post_bluesky) and "bluesky_url" in cols
     if not (want_mastodon or want_bluesky):
         return _flash_redirect(
-            name, "Pick at least one network to publish to.", "err",
+            name,
+            "Pick at least one network to publish to.",
+            "err",
             record_id=record_id,
         )
 
@@ -997,8 +1059,10 @@ def publish_social(
     image_url, alt = _pick_image(ct.name, record)
     if not text and not image_url:
         return _flash_redirect(
-            name, "Nothing to post — draft is empty and no image attached.",
-            "err", record_id=record_id,
+            name,
+            "Nothing to post — draft is empty and no image attached.",
+            "err",
+            record_id=record_id,
         )
 
     results: list[str] = []
@@ -1021,7 +1085,10 @@ def publish_social(
         else:
             try:
                 b = post_to_bluesky_api(
-                    cfg(), text, image_url=image_url, image_alt=alt,
+                    cfg(),
+                    text,
+                    image_url=image_url,
+                    image_alt=alt,
                 )
                 if b.get("url"):
                     db.set_bluesky_url(cfg(), ct, record_id, b["url"])
@@ -1078,7 +1145,9 @@ def _flash_redirect(
 async def trigger_webmention_sync(request: Request):
     if not cfg().webmention_io_token:
         if request.headers.get("accept", "").startswith("application/json"):
-            return JSONResponse({"ok": False, "error": "WEBMENTION_IO_TOKEN not set."}, status_code=400)
+            return JSONResponse(
+                {"ok": False, "error": "WEBMENTION_IO_TOKEN not set."}, status_code=400
+            )
         return _flash_redirect("", "WEBMENTION_IO_TOKEN not set.", "err")
     if _sync_state["running"]:
         started = False
@@ -1124,8 +1193,7 @@ def webmention_status(since: int = 0):
         "ok": sum(1 for r in results if r["error"] is None),
         "failed": sum(1 for r in results if r["error"] is not None),
         "changed": sum(
-            1 for r in results
-            if r["error"] is None and r["count"] != r["prev"]
+            1 for r in results if r["error"] is None and r["count"] != r["prev"]
         ),
         "new": results[since:] if since < len(results) else [],
     }
@@ -1136,6 +1204,7 @@ def webmention_status(since: int = 0):
 def webmention_log(request: Request):
     s = _sync_state
     results = s["results"]
+
     # Sort: changes first, then errors, then unchanged.
     def rank(r):
         if r["error"]:
@@ -1143,6 +1212,7 @@ def webmention_log(request: Request):
         if r["count"] != r["prev"]:
             return 0
         return 2
+
     sorted_results = sorted(results, key=rank)
     return templates.TemplateResponse(
         request,
@@ -1157,6 +1227,7 @@ def webmention_log(request: Request):
 
 def _mark_publish_dispatched() -> None:
     from datetime import timezone as _tz
+
     global _last_publish_dispatched_at
     _last_publish_dispatched_at = datetime.now(_tz.utc).isoformat()
 
@@ -1246,9 +1317,7 @@ def _extract(form, ct: ContentType) -> tuple[dict, list[str], dict[str, str]]:
     return values, tags, errors
 
 
-_MD_IMAGE_RE = re.compile(
-    r"!\[(?P<alt>[^\]]*)\]\((?P<url>[^)\s]+)(?:\s+\"[^\"]*\")?\)"
-)
+_MD_IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]*)\]\((?P<url>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _HTML_IMG_RE = re.compile(
     r"<img\b[^>]*?\bsrc=[\"'](?P<url>[^\"']+)[\"']"
     r"(?:[^>]*?\balt=[\"'](?P<alt>[^\"']*)[\"'])?",

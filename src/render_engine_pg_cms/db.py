@@ -1,4 +1,5 @@
 """Thin psycopg layer — CRUD driven by ContentType definitions from config.py."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -134,9 +135,7 @@ def list_timeline(
 
 def get_record(cfg: Config, ct: ContentType, record_id: int) -> dict[str, Any] | None:
     with _conn(cfg) as conn, conn.cursor() as cur:
-        cur.execute(
-            f"SELECT * FROM {ct.table} WHERE id = %(id)s", {"id": record_id}
-        )
+        cur.execute(f"SELECT * FROM {ct.table} WHERE id = %(id)s", {"id": record_id})
         row = cur.fetchone()
         if row is None:
             return None
@@ -183,7 +182,9 @@ def complete_tag(cfg: Config, prefix: str, limit: int = 8) -> list[str]:
 
 
 def suggest_tags_from_text(
-    cfg: Config, text: str, limit: int = 8,
+    cfg: Config,
+    text: str,
+    limit: int = 8,
 ) -> list[str]:
     """Suggest existing library tags whose names appear in (or fuzzy-match
     a word in) `text`. Uses pg_trgm's word_similarity — the `<%` operator
@@ -203,8 +204,6 @@ def suggest_tags_from_text(
     with _conn(cfg) as conn, conn.cursor() as cur:
         cur.execute(sql, {"text": text, "limit": limit})
         return [r["name"] for r in cur.fetchall()]
-
-
 
 
 def _now_fields(values: dict[str, Any], columns: list[str]) -> dict[str, Any]:
@@ -282,9 +281,7 @@ def update_record(
     values: dict[str, Any],
     tags: list[str] | None = None,
 ) -> None:
-    editable = [
-        c for c in ct.primary_columns if c not in ("created_at",)
-    ]
+    editable = [c for c in ct.primary_columns if c not in ("created_at",)]
     if "updated_at" in editable:
         values["updated_at"] = datetime.now(timezone.utc)
 
@@ -334,15 +331,11 @@ def set_syndication_url(
         conn.commit()
 
 
-def set_mastodon_url(
-    cfg: Config, ct: ContentType, record_id: int, url: str
-) -> None:
+def set_mastodon_url(cfg: Config, ct: ContentType, record_id: int, url: str) -> None:
     set_syndication_url(cfg, ct, record_id, "mastodon_url", url)
 
 
-def set_bluesky_url(
-    cfg: Config, ct: ContentType, record_id: int, url: str
-) -> None:
+def set_bluesky_url(cfg: Config, ct: ContentType, record_id: int, url: str) -> None:
     set_syndication_url(cfg, ct, record_id, "bluesky_url", url)
 
 
@@ -355,7 +348,5 @@ def delete_record(cfg: Config, ct: ContentType, record_id: int) -> None:
                 f"DELETE FROM {join_table} WHERE {fk} = %(id)s",
                 {"id": record_id},
             )
-        cur.execute(
-            f"DELETE FROM {ct.table} WHERE id = %(id)s", {"id": record_id}
-        )
+        cur.execute(f"DELETE FROM {ct.table} WHERE id = %(id)s", {"id": record_id})
         conn.commit()

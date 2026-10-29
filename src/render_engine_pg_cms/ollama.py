@@ -8,6 +8,7 @@ Config (env vars, wired through Config):
   OLLAMA_URL    — default http://localhost:11434
   OLLAMA_MODEL  — default llama3.2:3b (small enough for CPU, good enough for slugs)
 """
+
 from __future__ import annotations
 
 import logging
@@ -103,13 +104,13 @@ def suggest_description(cfg: Config, text: str) -> str:
         raise OllamaError("Empty input.")
     short = text[:2000]
     raw = _post_generate(
-        cfg, DESCRIPTION_PROMPT.format(text=short),
-        timeout=45.0, num_predict=96,
+        cfg,
+        DESCRIPTION_PROMPT.format(text=short),
+        timeout=45.0,
+        num_predict=96,
     )
     # Strip wrapping quotes the model sometimes adds despite instructions.
     summary = raw.strip().strip('"').strip("'").strip()
     # Take only the first paragraph if the model produced more.
     summary = summary.split("\n\n", 1)[0].replace("\n", " ").strip()
     return summary
-
-

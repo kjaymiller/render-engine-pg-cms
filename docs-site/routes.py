@@ -7,6 +7,7 @@ Pulls markdown from ../docs and ../README.md, renders each page through
 
 Output lands in ./output/ (gitignored).
 """
+
 from pathlib import Path
 
 from render_engine import Collection, Page, Site
@@ -37,6 +38,7 @@ markdown_extras = [
 @app.page
 class Index(Page):
     """The repo README becomes the site's landing page."""
+
     Parser = MarkdownPageParser
     parser_extras = {"markdown_extras": markdown_extras}
     content_path = str(REPO_ROOT / "README.md")
@@ -48,6 +50,7 @@ class Index(Page):
 @app.collection
 class Docs(Collection):
     """Top-level pages in ../docs (e.g. index.md)."""
+
     Parser = MarkdownPageParser
     parser_extras = {"markdown_extras": markdown_extras}
     content_path = str(REPO_ROOT / "docs")

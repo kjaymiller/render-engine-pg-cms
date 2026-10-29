@@ -26,5 +26,17 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Deliberately minimal while the codebase settles in; tighten later.
+# E402 is ignored because main.py configures logging before its imports.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E402"]
+
 [tool.setuptools.package-data]
 "render_engine_pg_cms" = ["templates/*.html", "static/*"]

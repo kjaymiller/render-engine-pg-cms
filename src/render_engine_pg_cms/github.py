@@ -1,4 +1,5 @@
 """Trigger the site's GitHub Actions publish workflow."""
+
 from __future__ import annotations
 
 import httpx
@@ -27,11 +28,11 @@ def trigger_publish(cfg: Config) -> None:
         f"https://api.github.com/repos/{cfg.github_repo}"
         f"/actions/workflows/{cfg.github_workflow}/dispatches"
     )
-    resp = httpx.post(url, headers=_headers(cfg), json={"ref": cfg.github_ref}, timeout=15)
+    resp = httpx.post(
+        url, headers=_headers(cfg), json={"ref": cfg.github_ref}, timeout=15
+    )
     if resp.status_code >= 300:
-        raise GitHubError(
-            f"GitHub dispatch failed ({resp.status_code}): {resp.text}"
-        )
+        raise GitHubError(f"GitHub dispatch failed ({resp.status_code}): {resp.text}")
 
 
 def latest_run(cfg: Config) -> dict | None:
@@ -44,17 +45,17 @@ def latest_run(cfg: Config) -> dict | None:
     )
     resp = httpx.get(url, headers=_headers(cfg), timeout=15)
     if resp.status_code >= 300:
-        raise GitHubError(
-            f"GitHub run lookup failed ({resp.status_code}): {resp.text}"
-        )
+        raise GitHubError(f"GitHub run lookup failed ({resp.status_code}): {resp.text}")
     runs = resp.json().get("workflow_runs") or []
     if not runs:
         return None
     r = runs[0]
     return {
         "id": r.get("id"),
-        "status": r.get("status"),            # queued | in_progress | completed
-        "conclusion": r.get("conclusion"),    # success | failure | ... | None while running
+        "status": r.get("status"),  # queued | in_progress | completed
+        "conclusion": r.get(
+            "conclusion"
+        ),  # success | failure | ... | None while running
         "created_at": r.get("created_at"),
         "updated_at": r.get("updated_at"),
         "html_url": r.get("html_url"),

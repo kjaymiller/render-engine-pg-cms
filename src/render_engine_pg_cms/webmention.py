@@ -1,4 +1,5 @@
 """Pull mention counts from webmention.io."""
+
 from __future__ import annotations
 
 import logging
@@ -41,7 +42,7 @@ def _connect_with_retry(cfg: Config, *, row_factory=None, attempts: int = 3):
             last_exc = exc
             if i == attempts - 1:
                 break
-            delay = 2 ** i  # 1s, 2s
+            delay = 2**i  # 1s, 2s
             log.warning("pg connect failed (%s); retrying in %ds", exc, delay)
             time.sleep(delay)
     raise last_exc  # type: ignore[misc]
@@ -60,7 +61,9 @@ def build_target_url(cfg: Config, ct_name: str, slug: str) -> str:
     if not slug:
         raise WebmentionError("Record has no slug; cannot build target URL.")
     return cfg.webmention_url_template.format(
-        base=cfg.site_base_url, type=ct_name, slug=slug,
+        base=cfg.site_base_url,
+        type=ct_name,
+        slug=slug,
     )
 
 
@@ -83,12 +86,14 @@ def fetch_summary(
     last_exc: Exception | None = None
     for i in range(attempts):
         try:
-            r = httpx.get(COUNT_API, params=params, headers=headers, timeout=_HTTP_TIMEOUT)
+            r = httpx.get(
+                COUNT_API, params=params, headers=headers, timeout=_HTTP_TIMEOUT
+            )
         except httpx.HTTPError as exc:
             last_exc = exc
             if i == attempts - 1:
                 break
-            delay = 2 ** i  # 1s, 2s
+            delay = 2**i  # 1s, 2s
             log.warning("webmention.io fetch failed (%s); retrying in %ds", exc, delay)
             time.sleep(delay)
             continue
@@ -157,9 +162,7 @@ def last_sync_time(cfg: Config) -> datetime | None:
             continue
         try:
             with _connect_with_retry(cfg) as conn, conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT MAX(webmentions_synced_at) FROM {ct.table}"
-                )
+                cur.execute(f"SELECT MAX(webmentions_synced_at) FROM {ct.table}")
                 row = cur.fetchone()
                 val = row[0] if row else None
                 if val is not None and (latest is None or val > latest):

@@ -1,4 +1,5 @@
 """Load render-engine CMS config from the site's pyproject.toml."""
+
 from __future__ import annotations
 
 import os
@@ -132,9 +133,7 @@ def load_config(pyproject_path: Path | None = None) -> Config:
         github_ref=os.environ.get("GITHUB_REF", "main"),
         mastodon_instance=os.environ.get("MASTODON_INSTANCE", "").rstrip("/"),
         mastodon_access_token=os.environ.get("MASTODON_ACCESS_TOKEN", "").strip(),
-        mastodon_default_visibility=os.environ.get(
-            "MASTODON_VISIBILITY", "public"
-        ),
+        mastodon_default_visibility=os.environ.get("MASTODON_VISIBILITY", "public"),
         site_base_url=os.environ.get("SITE_BASE_URL", "").rstrip("/"),
         bluesky_handle=os.environ.get("BLUESKY_HANDLE", ""),
         bluesky_app_password=os.environ.get("BLUESKY_APP_PASSWORD", "").strip(),
