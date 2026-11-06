@@ -232,7 +232,17 @@ body {
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Long slugs, URLs and tag strings must break rather than push the page wide. */
+  overflow-wrap: break-word;
 }
+
+/* Grid/flex children default to min-content width, which lets a long word
+   blow out the track instead of wrapping. Opt the text-bearing ones out. */
+.tl-item > *, .tl-card, .tl-card-head, .tl-title,
+.feed-item > *, .feed-body,
+.card, .card-body, .card-title,
+.masthead-inner > *, .page-head > *,
+.record-form label, .row-actions, .status-cluster { min-width: 0; }
 
 [x-cloak] { display: none !important; }
 
@@ -754,6 +764,14 @@ table.wm-log .wm-row-err .error { font-family: var(--mono); font-size: 0.78rem; 
 
 /* ───────── Record tables / card grid / feed ─────────────────── */
 
+/* Wide tables scroll inside their own box rather than widening the page. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.6rem;
+  padding: 0 0.6rem;
+}
+
 table.records {
   width: 100%; border-collapse: separate; border-spacing: 0;
   font-size: 0.95rem;
@@ -795,7 +813,8 @@ table.records td:nth-child(3) {
 /* Cards (notes) */
 .card-grid {
   display: grid; gap: 1.25rem; margin-top: 1.5rem;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  /* min() so a 280px track never exceeds a narrow viewport. */
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
 }
 .card {
   display: flex; flex-direction: column;
@@ -1906,9 +1925,22 @@ main > *:nth-child(4) { animation-delay: 180ms; }
   }
   .sections { justify-content: flex-start; }
   .brand { font-size: 1.3rem; }
+  /* Theme chips + wm indicator + publish sit on one wrapping row. */
+  .theme-switch { flex-wrap: wrap; align-self: start; }
+  .masthead .publish { justify-self: start; }
   main { padding: 2rem 1.25rem 3rem; }
   h1 { font-size: 2.2rem; }
+
+  /* The kicker is absolutely positioned on desktop, so it can't wrap.
+     On narrow screens let it flow as the first grid row instead. */
   .page-head { grid-template-columns: 1fr; }
+  .page-head[data-kicker]::before {
+    position: static;
+    display: block;
+    line-height: 1.4;
+  }
+  .page-head h1 { margin-top: 0.35rem; }
+
   .feed-item {
     grid-template-columns: 1fr;
     gap: 0.7rem;
@@ -1917,10 +1949,63 @@ main > *:nth-child(4) { animation-delay: 180ms; }
   .feed-head {
     flex-direction: row; text-align: left;
     justify-content: space-between;
+    flex-wrap: wrap; gap: 0.5rem;
   }
   .feed-head-right { justify-content: flex-start; }
   .feed-img, .feed-link, .feed-foot { grid-column: 1; }
+  .feed-foot { flex-wrap: wrap; gap: 0.5rem; }
   .record-form { padding: 1.3rem 1.25rem; }
+  .quick-box { padding: 1.3rem 1.25rem; }
+  .date-row, .geo-coords { flex-wrap: wrap; }
+  .date-row input { flex: 1 1 9rem; min-width: 0; }
+
+  /* The trailing-URL hint truncates to 45ch on desktop; let it wrap here. */
+  .include-url small {
+    white-space: normal; max-width: none;
+    overflow: visible; text-overflow: clip;
+    flex-basis: 100%;
+  }
+
+  /* Timeline: the 7.5rem date rail leaves almost nothing for the card,
+     so stack the rail above it and pull the spine to the left edge. */
+  .tl-item {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    padding: 0.85rem 0 0.85rem 1.5rem;
+  }
+  .tl-list::before { left: 0.47rem; }
+  .tl-rail {
+    flex-direction: row; align-items: center; flex-wrap: wrap;
+    gap: 0.5rem; padding-top: 0;
+  }
+  .tl-dot { top: 1.15rem; left: 0.15rem; }
+  .tl-when { flex-direction: row; align-items: baseline; gap: 0.35rem; }
+  .tl-card { padding: 0.95rem 1rem 1rem; }
+  .tl-card-head { flex-wrap: wrap; gap: 0.5rem; }
+  .status-cluster { margin-left: 0; flex-wrap: wrap; }
+  .tl-foot { flex-wrap: wrap; gap: 0.5rem; }
+  .tl-foot > span:first-child { word-break: break-word; }
+  .tl-img { max-width: 100%; }
+  .tl-pager { flex-wrap: wrap; gap: 0.75rem; }
+
+  /* Full timestamps in the date column were nowrap and pushed the page wide. */
+  table.records { font-size: 0.9rem; }
+  table.records td:nth-child(3) { white-space: normal; }
+  table.wm-log td.wm-types-cell { white-space: normal; }
+  .wm-stats { padding: 0.9rem 1rem; }
+}
+
+/* Small phones: the remaining fixed-width bits give way. */
+@media (max-width: 420px) {
+  main { padding: 1.5rem 1rem 2.5rem; }
+  .masthead-inner { padding: 0.8rem 1rem; }
+  .record-form, .quick-box { padding: 1.1rem 1rem; }
+  .tl-card { padding: 0.85rem 0.9rem 0.9rem; }
+  .feed-item { padding: 1rem 1rem; }
+  .modal-backdrop { padding: 3vh 0.6rem 1rem; }
+  .modal-card form { padding: 0.9rem 1rem 1rem; }
+  .modal-head { padding: 0.9rem 1rem 0.7rem; }
+  .colophon { padding: 1.1rem 1rem; }
 }
 
 /* ───────── Publish-to-social modal ──────────────────────────── */

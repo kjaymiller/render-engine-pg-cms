@@ -44,6 +44,7 @@
   </div>
 </section>
 
+<div class="table-scroll">
 <table class="records wm-log" x-data>
   <thead>
     <tr><th>Type</th><th>Slug</th><th>Prev</th><th>Now</th><th>Δ</th><th>Breakdown</th><th>Status</th></tr>
@@ -76,6 +77,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 <p class="muted" id="wm-empty" {% if results %}hidden{% endif %}>
   No sync has run yet. Press <strong>Sync now</strong> above or wait for the scheduled refresh.
 </p>

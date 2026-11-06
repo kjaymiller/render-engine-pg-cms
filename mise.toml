@@ -36,6 +36,34 @@ run = '''fnox exec -- uv run python -c "from render_engine_pg_cms.config import 
 description = "Trigger the site's publish workflow from the CLI (no browser needed)"
 run = '''fnox exec -- uv run python -c "from render_engine_pg_cms.config import load_config; from render_engine_pg_cms.github import trigger_publish; trigger_publish(load_config()); print('dispatched')"'''
 
+[tasks.lint]
+description = "Lint and format-check with ruff (pass `fix` to auto-fix)"
+shell = "bash -c"
+usage = 'arg "<mode>" default="check"'
+run = """
+set -euo pipefail
+if [ "$usage_mode" = "fix" ]; then
+    uvx ruff check --fix src
+    uvx ruff format src
+else
+    uvx ruff check src
+    uvx ruff format --check src
+fi
+"""
+
+[tasks.test]
+description = "Run the test suite with pytest (extra args are passed through)"
+shell = "bash -c"
+usage = 'arg "[args]..." var=#true'
+run = """
+set -uo pipefail
+eval "uv run --with pytest pytest ${usage_args:-}"
+rc=$?
+# pytest exits 5 when no tests are collected; don't treat that as failure.
+if [ $rc -eq 5 ]; then echo "→ no tests collected"; exit 0; fi
+exit $rc
+"""
+
 [tasks.lock]
 description = "Update locked dependencies"
 run = "uv lock --upgrade"
