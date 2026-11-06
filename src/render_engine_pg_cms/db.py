@@ -63,73 +63,110 @@ def _status_clause(cols: set[str], status: str) -> str:
     return ""  # "all" / unknown
 
 
+def _order_clause(cols: set[str]) -> str:
+    # Stable total order (id tiebreaker) so LIMIT/OFFSET paging never skips
+    # or duplicates rows.
+    order = "ORDER BY "
+    if "date" in cols:
+        order += "date DESC NULLS LAST, "
+    return order + "id DESC"
+
+
 def list_records(
     cfg: Config,
     ct: ContentType,
     status: str = "all",
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
+    """Return records for one content type, newest first.
+
+    `limit`/`offset` are applied in SQL as bound parameters so callers only
+    pull the window they render. `limit=None` means no LIMIT (internal use).
+    """
     if not ct.table:
         return []
     with _conn(cfg) as conn, conn.cursor() as cur:
         cols = _table_columns(cur, ct.table)
         where = _status_clause(cols, status)
-        order = "ORDER BY "
-        if "date" in cols:
-            order += "date DESC NULLS LAST, "
-        order += "id DESC"
         sql = f"SELECT * FROM {ct.table}"
         if where:
             sql += f" WHERE {where}"
-        sql += f" {order}"
-        cur.execute(sql)
+        sql += f" {_order_clause(cols)}"
+        params: dict[str, Any] = {}
+        if limit is not None:
+            sql += " LIMIT %(limit)s"
+            params["limit"] = max(0, int(limit))
+        if offset:
+            sql += " OFFSET %(offset)s"
+            params["offset"] = max(0, int(offset))
+        cur.execute(sql, params)
         return list(cur.fetchall())
 
 
 def count_by_status(cfg: Config, ct: ContentType) -> dict[str, int]:
-    """Return {published, drafts, scheduled, all} counts for one content type."""
+    """Return {published, drafts, scheduled, all} counts for one content type,
+    computed with a single aggregate query.
+
+    A status whose filter doesn't apply to this table (no `draft`/`date`
+    columns) counts every row, matching what `list_records` returns for it.
+    """
     out = {"all": 0, "published": 0, "drafts": 0, "scheduled": 0}
     if not ct.table:
         return out
     with _conn(cfg) as conn, conn.cursor() as cur:
         cols = _table_columns(cur, ct.table)
-        cur.execute(f"SELECT COUNT(*) AS n FROM {ct.table}")
-        out["all"] = cur.fetchone()["n"]
+        selects = ['COUNT(*) AS "all"']
         for status in ("published", "drafts", "scheduled"):
-            where = _status_clause(cols, status)
-            if not where:
-                continue
-            cur.execute(f"SELECT COUNT(*) AS n FROM {ct.table} WHERE {where}")
-            out[status] = cur.fetchone()["n"]
+            where = _status_clause(cols, status) or "TRUE"
+            selects.append(f'COUNT(*) FILTER (WHERE {where}) AS "{status}"')
+        cur.execute(f"SELECT {', '.join(selects)} FROM {ct.table}")
+        row = cur.fetchone() or {}
+        for key in out:
+            out[key] = int(row.get(key) or 0)
     return out
+
+
+def _timeline_key(row: dict) -> tuple:
+    # Mirrors the SQL ordering (date DESC NULLS LAST, id DESC) so the
+    # per-type windows fetched by list_timeline merge without gaps.
+    value = row.get("date")
+    return (value is not None, value or 0, row.get("id") or 0)
 
 
 def list_timeline(
     cfg: Config,
     type_names: list[str] | None = None,
     status: str = "all",
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Merge records across content types, sorted newest first.
 
     Each row is annotated with `_type` = content-type name. Content types
-    without a configured read_sql are silently skipped.
+    without a configured table are silently skipped.
+
+    With `limit`, only the merged window [offset, offset+limit) is returned.
+    Each type is asked for at most `offset + limit` rows in SQL: any row in
+    the merged window must be within the first `offset + limit` rows of its
+    own type, so the result is exact without reading whole tables.
     """
     names = type_names or list(cfg.content_types.keys())
+    per_type = None if limit is None else max(0, offset) + max(0, limit)
     out: list[dict[str, Any]] = []
     for n in names:
         ct = cfg.content_types.get(n)
         if not ct or not ct.table:
             continue
-        for r in list_records(cfg, ct, status=status):
+        for r in list_records(cfg, ct, status=status, limit=per_type):
             r = dict(r)
             r["_type"] = n
             out.append(r)
 
-    def key(row: dict) -> tuple:
-        value = row.get("date") or row.get("created_at")
-        return (value is not None, value or 0)
-
-    out.sort(key=key, reverse=True)
-    return out
+    out.sort(key=_timeline_key, reverse=True)
+    if limit is None:
+        return out[max(0, offset):]
+    return out[max(0, offset) : max(0, offset) + max(0, limit)]
 
 
 def get_record(cfg: Config, ct: ContentType, record_id: int) -> dict[str, Any] | None:

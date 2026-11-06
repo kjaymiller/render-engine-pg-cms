@@ -500,13 +500,16 @@ def index(
         per_type = db.count_by_status(cfg(), cfg().content_types[n])
         for k, v in per_type.items():
             status_counts[k] = status_counts.get(k, 0) + v
-    all_rows = db.list_timeline(cfg(), timeline_types, status=status)
-    _annotate_scheduled(all_rows)
-    total = len(all_rows)
+    # The status counts already give the filtered total, so only the
+    # current page window is fetched from the database.
+    total = status_counts.get(status, 0)
     pages = max(1, (total + per - 1) // per)
     page = min(page, pages)
     start = (page - 1) * per
-    rows = all_rows[start:start + per]
+    rows = db.list_timeline(
+        cfg(), timeline_types, status=status, limit=per, offset=start
+    )
+    _annotate_scheduled(rows)
     mastodon_enabled = bool(cfg().mastodon_instance)
     bluesky_enabled = bool(cfg().bluesky_handle and cfg().bluesky_app_password)
     # Annotate each timeline row with the same social-publish context the
@@ -763,12 +766,21 @@ def list_view(
     msg: str | None = None,
     level: str = "ok",
     status: str = "all",
+    page: int = 1,
+    per: int = 50,
 ):
     ct = _ct(name)
+    page = max(1, page)
+    per = max(5, min(per, 100))
     if status not in VALID_STATUSES:
         status = "all"
     status_counts = db.count_by_status(cfg(), ct)
-    records = db.list_records(cfg(), ct, status=status)
+    total = status_counts.get(status, 0)
+    pages = max(1, (total + per - 1) // per)
+    page = min(page, pages)
+    records = db.list_records(
+        cfg(), ct, status=status, limit=per, offset=(page - 1) * per
+    )
     _annotate_scheduled(records)
     can_syndicate = ct.name in ("microblog", "blog")
     mastodon_enabled = can_syndicate and bool(cfg().mastodon_instance)
@@ -793,6 +805,10 @@ def list_view(
             "records": records,
             "status": status,
             "status_counts": status_counts,
+            "page": page,
+            "pages": pages,
+            "per": per,
+            "total": total,
             "flash": msg,
             "flash_level": level,
             "mastodon_enabled": mastodon_enabled,
