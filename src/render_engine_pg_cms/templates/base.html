@@ -6,10 +6,11 @@
   <title>{% block title %}RenderPG{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Figtree:ital,wght@0,300..700;1,300..700&family=JetBrains+Mono:wght@400;500&family=Allura&display=swap" rel="stylesheet">
+  {#- Fonts load non-blocking (print-media swap) so first paint doesn't wait on Google. -#}
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Figtree:ital,wght@0,300..700;1,300..700&family=JetBrains+Mono:wght@400;500&family=Allura&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Figtree:ital,wght@0,300..700;1,300..700&family=JetBrains+Mono:wght@400;500&family=Allura&display=swap" rel="stylesheet"></noscript>
   <link rel="stylesheet" href="/static/style.css">
-  <script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+  {#- marked + mermaid are loaded on demand by window.loadLib (bottom of body). -#}
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 </head>
 <body x-data="themeSwitcher" :data-theme="theme">
@@ -327,6 +328,36 @@
     // We render each block individually (rather than mermaid.run over all of
     // them) so one broken diagram shows an inline error with its source instead
     // of blanking or taking the whole pass down.
+    // Heavy libraries are fetched only when a page needs them. URLs are fixed,
+    // version-pinned literals; never build them from page or request data.
+    (function () {
+      const LIBS = {
+        marked: "https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js",
+        mermaid: "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js",
+      };
+      const pending = {};
+      window.loadLib = function (name) {
+        if (!Object.prototype.hasOwnProperty.call(LIBS, name)) {
+          return Promise.reject(new Error("unknown lib " + name));
+        }
+        if (window[name]) return Promise.resolve(window[name]);
+        if (!pending[name]) {
+          pending[name] = new Promise((resolve, reject) => {
+            const s = document.createElement("script");
+            s.src = LIBS[name];
+            s.async = true;
+            s.onload = () => resolve(window[name]);
+            s.onerror = () => {
+              delete pending[name];
+              s.remove();
+              reject(new Error("failed to load " + name));
+            };
+            document.head.appendChild(s);
+          });
+        }
+        return pending[name];
+      };
+    })();
     (function () {
       let ready = false;
       let seq = 0;
@@ -350,7 +381,15 @@
       }
       window.renderMermaid = function (root) {
         const m = window.mermaid;
-        if (!m) return;
+        if (!m) {
+          // Only pull the (large) mermaid bundle once a fence actually exists.
+          const scope = root || document;
+          if (!scope.querySelector("pre > code.language-mermaid")) return;
+          window.loadLib("mermaid")
+            .then(() => window.mermaid && window.renderMermaid(root))
+            .catch(() => {});
+          return;
+        }
         if (!ready) {
           m.initialize({
             startOnLoad: false,
