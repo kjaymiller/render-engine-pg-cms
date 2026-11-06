@@ -187,7 +187,7 @@ Errors use standard status codes with `{"detail": "..."}` bodies:
 | -------- | ------- | -------------------------------------------------- |
 | `status` | `all`   | One of `all`, `published`, `drafts`, `scheduled`. |
 | `limit`  | `50`    | 1–500.                                             |
-| `offset` | `0`     | For paging; `total` in the response is unfiltered. |
+| `offset` | `0`     | For paging. `limit`/`offset` are applied in SQL; `total` is the row count for the requested `status`, ignoring `limit`/`offset`. |
 
 ### Create / update payload
 

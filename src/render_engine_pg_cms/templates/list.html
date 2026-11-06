@@ -156,4 +156,22 @@
 </table>
 </div>
 {% endif %}
+
+{% if pages > 1 %}
+  <nav class="tl-pager" aria-label="Pagination">
+    {% if page > 1 %}
+      <a class="btn btn-ghost" href="?page={{ page - 1 }}&amp;per={{ per }}&amp;status={{ status }}">← Newer</a>
+    {% else %}
+      <span class="btn btn-ghost is-disabled" aria-disabled="true">← Newer</span>
+    {% endif %}
+    <span class="tl-pager-info">
+      page <strong>{{ page }}</strong> of {{ pages }}
+    </span>
+    {% if page < pages %}
+      <a class="btn btn-ghost" href="?page={{ page + 1 }}&amp;per={{ per }}&amp;status={{ status }}">Older →</a>
+    {% else %}
+      <span class="btn btn-ghost is-disabled" aria-disabled="true">Older →</span>
+    {% endif %}
+  </nav>
+{% endif %}
 {% endblock %}

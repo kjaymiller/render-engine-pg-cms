@@ -119,8 +119,10 @@ def list_records(
     if status not in VALID_STATUSES:
         raise HTTPException(400, f"status must be one of {VALID_STATUSES}")
     ct = _ct(name)
-    rows = db.list_records(_cfg(), ct, status=status)
-    return {"total": len(rows), "records": rows[offset:offset + limit]}
+    c = _cfg()
+    total = db.count_by_status(c, ct).get(status, 0)
+    rows = db.list_records(c, ct, status=status, limit=limit, offset=offset)
+    return {"total": total, "records": rows}
 
 
 @router.get("/c/{name}/{record_id}", dependencies=[Depends(require_token)])
