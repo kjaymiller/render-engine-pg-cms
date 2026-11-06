@@ -612,7 +612,12 @@
       kind: kind,
       src: initial || "",
       open: localStorage.getItem("renderpg-preview-open") !== "0",
+      // Flips once the lazily-loaded `marked` arrives so `html` recomputes.
+      markedReady: !!window.marked,
       init() {
+        if (!this.markedReady && window.loadLib) {
+          window.loadLib("marked").then(() => { this.markedReady = true; }).catch(() => {});
+        }
         const ta = document.querySelector('textarea[name="content"]');
         if (ta) {
           this.src = ta.value || this.src;
@@ -624,7 +629,7 @@
         localStorage.setItem("renderpg-preview-open", this.open ? "1" : "0");
       },
       get html() {
-        const m = window.marked;
+        const m = this.markedReady && window.marked;
         if (!m) return "";
         const text = this.src || "";
         try {
