@@ -141,106 +141,165 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
+    // Shared state + getters for both the inline (edit page) modal and the
+    // single delegated modal used on list/timeline pages. `limits` and the
+    // per-record fields are plain strings/numbers; record text always flows
+    // through `highlightedHtml` (escaped), never x-html on raw input.
+    const _publishSocialState = (limits, mode) => ({
+      open: false,
+      action: "",
+      text: "",
+      mastoLimit: limits.mastoLimit,
+      bskyLimit: limits.bskyLimit,
+      canMasto: false,
+      canBsky: false,
+      imageUrl: "",
+      imageAlt: "",
+      canonicalUrl: "",
+      includeUrl: false,
+      toMasto: false,
+      toBsky: false,
+      init() {
+        if (mode === "inline") {
+          this.text = limits.text || "";
+          this.canMasto = !!limits.canMasto;
+          this.canBsky = !!limits.canBsky;
+          this.imageUrl = limits.imageUrl || "";
+          this.imageAlt = limits.imageAlt || "";
+          this.canonicalUrl = limits.canonicalUrl || "";
+          this.includeUrl = !!limits.canonicalUrl;
+          this.toMasto = !!limits.canMasto;
+          this.toBsky = !!limits.canBsky;
+        }
+      },
+      // Shared mode: delegate clicks on any `data-social-publish` trigger.
+      start() {
+        if (mode !== "shared") return;
+        this._click = (e) => this.onTrigger(e);
+        document.addEventListener("click", this._click);
+      },
+      onTrigger(e) {
+        const trigger = e.target.closest("[data-social-publish]");
+        if (!trigger) return;
+        e.preventDefault();
+        this.load(trigger);
+      },
+      get len() { return [...this.text].length; },
+      get urlAlreadyPresent() {
+        return !!this.canonicalUrl && this.text.includes(this.canonicalUrl);
+      },
+      get effectiveText() {
+        if (!this.includeUrl || !this.canonicalUrl || this.urlAlreadyPresent) {
+          return this.text;
+        }
+        const sep = this.text.trim() ? "\n\n" : "";
+        return this.text + sep + this.canonicalUrl;
+      },
+      get effectiveLen() { return [...this.effectiveText].length; },
+      get projectedLen() {
+        if (!this.canonicalUrl || this.urlAlreadyPresent) return this.len;
+        const sep = this.text.trim() ? "\n\n" : "";
+        return [...(this.text + sep + this.canonicalUrl)].length;
+      },
+      get wouldOverflowWithUrl() {
+        if (!this.canonicalUrl || this.urlAlreadyPresent) return false;
+        const limit = Math.min(this.mastoLimit, this.bskyLimit);
+        return this.projectedLen > limit;
+      },
+      get submitLabel() {
+        const picks = [];
+        if (this.toMasto) picks.push("Mastodon");
+        if (this.toBsky) picks.push("Bluesky");
+        if (picks.length === 0) return "Pick a network";
+        return "Publish to " + picks.join(" + ");
+      },
+      get highlightedHtml() {
+        const chars = [...this.text];
+        const lo = Math.min(this.mastoLimit, this.bskyLimit);
+        const hi = Math.max(this.mastoLimit, this.bskyLimit);
+        let out = "";
+        let cls = "";
+        let buf = "";
+        const flush = () => {
+          if (!buf) return;
+          const esc = _escapeHtml(buf).replace(/\n/g, "<br>");
+          out += cls ? `<span class="${cls}">${esc}</span>` : esc;
+          buf = "";
+        };
+        chars.forEach((ch, i) => {
+          let next = "";
+          if (i >= hi) next = "over-masto";
+          else if (i >= lo) next = "over-bsky";
+          if (next !== cls) { flush(); cls = next; }
+          buf += ch;
+        });
+        flush();
+        if (this.text.endsWith("\n")) out += "<br>&nbsp;";
+        return out || "&nbsp;";
+      },
+      sync() { this.syncScroll(); },
+      syncScroll() {
+        const ta = this.$refs.textarea;
+        const hl = this.$refs.highlight;
+        if (ta && hl) {
+          hl.scrollTop = ta.scrollTop;
+          hl.scrollLeft = ta.scrollLeft;
+        }
+      },
+      // Load a `data-social` trigger payload into this modal's state.
+      load(trigger) {
+        let payload = {};
+        try {
+          payload = JSON.parse(trigger.getAttribute("data-social") || "{}");
+        } catch (_) {
+          payload = {};
+        }
+        this.action = trigger.getAttribute("data-action") || "";
+        this.text = payload.text || "";
+        this.canMasto = !!payload.canMasto;
+        this.canBsky = !!payload.canBsky;
+        this.imageUrl = payload.imageUrl || "";
+        this.imageAlt = payload.imageAlt || "";
+        this.canonicalUrl = payload.canonicalUrl || "";
+        this.includeUrl = !!this.canonicalUrl;
+        this.toMasto = this.canMasto;
+        this.toBsky = this.canBsky;
+        this.open = true;
+      },
+      onSubmit(e) {
+        if (!(this.toMasto || this.toBsky)) { e.preventDefault(); return; }
+        const targets = [];
+        if (this.toMasto) targets.push("Mastodon");
+        if (this.toBsky) targets.push("Bluesky");
+        if (this.includeUrl && this.canonicalUrl && !this.urlAlreadyPresent) {
+          const sep = this.text.trim() ? "\n\n" : "";
+          this.text = this.text + sep + this.canonicalUrl;
+        }
+        const finalLen = [...this.text].length;
+        const warn = [];
+        if (this.toMasto && finalLen > this.mastoLimit) {
+          warn.push(`Mastodon (${finalLen}/${this.mastoLimit})`);
+        }
+        if (this.toBsky && finalLen > this.bskyLimit) {
+          warn.push(`Bluesky (${finalLen}/${this.bskyLimit})`);
+        }
+        const base = `Publish to ${targets.join(" + ")}?`;
+        const msg = warn.length
+          ? `${base}\n\nDraft exceeds limits for: ${warn.join(", ")}. It will be truncated.`
+          : base;
+        if (!confirm(msg)) e.preventDefault();
+      },
+    });
     document.addEventListener("alpine:init", () => {
-      Alpine.data("publishSocial", (opts) => ({
-        open: false,
-        text: opts.text || "",
-        mastoLimit: opts.mastoLimit,
-        bskyLimit: opts.bskyLimit,
-        canMasto: !!opts.canMasto,
-        canBsky: !!opts.canBsky,
-        imageUrl: opts.imageUrl || "",
-        imageAlt: opts.imageAlt || "",
-        canonicalUrl: opts.canonicalUrl || "",
-        includeUrl: !!opts.canonicalUrl,
-        toMasto: !!opts.canMasto,
-        toBsky: !!opts.canBsky,
-        get len() { return [...this.text].length; },
-        get urlAlreadyPresent() {
-          return !!this.canonicalUrl && this.text.includes(this.canonicalUrl);
-        },
-        get effectiveText() {
-          if (!this.includeUrl || !this.canonicalUrl || this.urlAlreadyPresent) {
-            return this.text;
-          }
-          const sep = this.text.trim() ? "\n\n" : "";
-          return this.text + sep + this.canonicalUrl;
-        },
-        get effectiveLen() { return [...this.effectiveText].length; },
-        get projectedLen() {
-          if (!this.canonicalUrl || this.urlAlreadyPresent) return this.len;
-          const sep = this.text.trim() ? "\n\n" : "";
-          return [...(this.text + sep + this.canonicalUrl)].length;
-        },
-        get wouldOverflowWithUrl() {
-          if (!this.canonicalUrl || this.urlAlreadyPresent) return false;
-          const limit = Math.min(this.mastoLimit, this.bskyLimit);
-          return this.projectedLen > limit;
-        },
-        get submitLabel() {
-          const picks = [];
-          if (this.toMasto) picks.push("Mastodon");
-          if (this.toBsky) picks.push("Bluesky");
-          if (picks.length === 0) return "Pick a network";
-          return "Publish to " + picks.join(" + ");
-        },
-        get highlightedHtml() {
-          const chars = [...this.text];
-          const lo = Math.min(this.mastoLimit, this.bskyLimit);
-          const hi = Math.max(this.mastoLimit, this.bskyLimit);
-          let out = "";
-          let cls = "";
-          let buf = "";
-          const flush = () => {
-            if (!buf) return;
-            const esc = _escapeHtml(buf).replace(/\n/g, "<br>");
-            out += cls ? `<span class="${cls}">${esc}</span>` : esc;
-            buf = "";
-          };
-          chars.forEach((ch, i) => {
-            let next = "";
-            if (i >= hi) next = "over-masto";
-            else if (i >= lo) next = "over-bsky";
-            if (next !== cls) { flush(); cls = next; }
-            buf += ch;
-          });
-          flush();
-          if (this.text.endsWith("\n")) out += "<br>&nbsp;";
-          return out || "&nbsp;";
-        },
-        sync() { this.syncScroll(); },
-        syncScroll() {
-          const ta = this.$refs.textarea;
-          const hl = this.$refs.highlight;
-          if (ta && hl) {
-            hl.scrollTop = ta.scrollTop;
-            hl.scrollLeft = ta.scrollLeft;
-          }
-        },
-        onSubmit(e) {
-          if (!(this.toMasto || this.toBsky)) { e.preventDefault(); return; }
-          const targets = [];
-          if (this.toMasto) targets.push("Mastodon");
-          if (this.toBsky) targets.push("Bluesky");
-          if (this.includeUrl && this.canonicalUrl && !this.urlAlreadyPresent) {
-            const sep = this.text.trim() ? "\n\n" : "";
-            this.text = this.text + sep + this.canonicalUrl;
-          }
-          const finalLen = [...this.text].length;
-          const warn = [];
-          if (this.toMasto && finalLen > this.mastoLimit) {
-            warn.push(`Mastodon (${finalLen}/${this.mastoLimit})`);
-          }
-          if (this.toBsky && finalLen > this.bskyLimit) {
-            warn.push(`Bluesky (${finalLen}/${this.bskyLimit})`);
-          }
-          const base = `Publish to ${targets.join(" + ")}?`;
-          const msg = warn.length
-            ? `${base}\n\nDraft exceeds limits for: ${warn.join(", ")}. It will be truncated.`
-            : base;
-          if (!confirm(msg)) e.preventDefault();
-        },
-      }));
+      // Inline modal used by the edit page: the trigger and the modal share
+      // one component instance, so opening is just `open = true`.
+      Alpine.data("publishSocial", (opts) => _publishSocialState(opts, "inline"));
+    });
+    document.addEventListener("alpine:init", () => {
+      // One modal per list/timeline page. Any `data-social-publish` button
+      // opens it with that button's own payload; the form posts to that
+      // button's server-rendered action.
+      Alpine.data("publishSocialShared", (opts) => _publishSocialState(opts, "shared"));
     });
     document.addEventListener("alpine:init", () => {
       Alpine.data("publishBtn", () => ({
