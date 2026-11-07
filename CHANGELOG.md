@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 tags via setuptools-scm. Releases prior to `2026.7.10` are recorded only as git
 tags / GitHub releases.
 
+## [Unreleased]
+
+### Added
+- `mise run timing` runs `scripts/timing_diagnostic.py` against the real
+  database and reports, per page shape, the time spent on connection
+  establishment / TLS handshake vs the counts and list queries vs the total
+  render (median/min/max over `--repeat` passes). It reuses the app's own
+  `db` helpers (like `mise run explain`), so the measured reads can't drift
+  from the routes, and it prints an attribution line naming the dominant
+  phase so a TTFB spike can be pinned on connect or on query/network transit.
+
 ## [2026.11.0] - 2026-11-07
 
 Performance release. Measured against the real (remote, Aiven) database, every

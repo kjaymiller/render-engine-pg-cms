@@ -70,6 +70,12 @@ shell = "bash -c"
 usage = 'arg "[args]..." var=#true'
 run = '''fnox exec -- uv run python scripts/explain_timeline.py ${usage_args:-}'''
 
+[tasks.timing]
+description = "Attribute render time to connect/handshake vs query (extra args passed through)"
+shell = "bash -c"
+usage = 'arg "[args]..." var=#true'
+run = '''fnox exec -- uv run python scripts/timing_diagnostic.py ${usage_args:-}'''
+
 [tasks.lock]
 description = "Update locked dependencies"
 run = "uv lock --upgrade"
