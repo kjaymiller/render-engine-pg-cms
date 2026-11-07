@@ -12,6 +12,8 @@ description: "Every `mise` task the CMS ships and what it does."
 | `mise run publish`               | Trigger the site's GitHub publish workflow           |
 | `mise run sync-webmentions`      | Full webmention sync from the CLI (prints results)   |
 | `mise run load-sql sql/<file>`   | Apply an idempotent migration against the DB         |
+| `mise run explain`               | Time + `EXPLAIN ANALYZE` the list/timeline reads     |
+| `mise run timing`                | Attribute render time to connect/handshake vs query  |
 | `mise run backport-syndication`  | Dry-run backfill of `mastodon_url` / `bluesky_url`   |
 | `mise run extension`             | Package the `.xpi` for Zen/Firefox                   |
 | `mise run lock`                  | `uv lock --upgrade`                                  |

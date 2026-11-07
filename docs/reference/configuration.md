@@ -36,6 +36,8 @@ curl -s -o /dev/null -w '%{time_total}s %{size_download} bytes\n' http://localho
 
 Set `SLOW_REQUEST_MS=250` in production to surface only genuinely slow routes in your existing stdout log.
 
+When a route's `X-Process-Time` spikes, `mise run timing` breaks the render down against the real database: it reports the connection/TLS handshake time, the counts and list query times, and the total, per page shape, so you can tell whether the spike is connect-bound or query-bound. It reuses the app's own `db` helpers, so the measured reads match the routes. See [cli-recipes.md](cli-recipes.md).
+
 ## GitHub (Publish button + auto-publish)
 
 | Variable                       | Purpose                                                  | Default       |
