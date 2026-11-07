@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_icons.html" import webmentions_status, publish_social_modal, delete_form %}
+{% from "_icons.html" import webmentions_status, publish_social_trigger, publish_social_modal_root, delete_form %}
 {% block title %}Timeline{% endblock %}
 
 {% block content %}
@@ -94,7 +94,7 @@
               {% endif %}
               {% if r._type in ("microblog", "blog") %}
                 {% if mastodon_enabled or bluesky_enabled %}
-                  {{ publish_social_modal(
+                  {{ publish_social_trigger(
                        r._type, r, mastodon_enabled, bluesky_enabled,
                        r._social_draft, r._social_image_url,
                        r._social_image_alt, r._social_canonical_url,
@@ -141,6 +141,8 @@
       <li class="muted" style="padding: 2rem 0;">No entries yet.</li>
     {% endfor %}
   </ol>
+
+  {% if syndication_enabled and rows %}{{ publish_social_modal_root(masto_limit, bsky_limit) }}{% endif %}
 
   {% if pages > 1 %}
     <nav class="tl-pager" aria-label="Pagination">

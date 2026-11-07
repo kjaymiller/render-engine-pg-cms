@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status, publish_social_modal %}
+{% from "_icons.html" import mastodon_status, bluesky_status, webmentions_status, publish_social_trigger, publish_social_modal_root %}
 {% block title %}{{ ct.name }}{% endblock %}
 {% block content %}
 <header class="page-head" data-kicker="Section · {{ ct.name }}">
@@ -77,7 +77,7 @@
       <span class="muted">#{{ r.id }} · {{ r.slug or "" }}</span>
       <div class="row-actions">
         {% if mastodon_enabled or bluesky_enabled %}
-          {{ publish_social_modal(
+          {{ publish_social_trigger(
                ct.name, r, mastodon_enabled, bluesky_enabled,
                r.get("_social_draft", ""), r.get("_social_image_url"),
                r.get("_social_image_alt", ""), r.get("_social_canonical_url", ""),
@@ -94,6 +94,7 @@
   </article>
   {% endfor %}
 </div>
+{% if syndication_enabled %}{{ publish_social_modal_root(masto_limit, bsky_limit) }}{% endif %}
 {% elif ct.name == "notes" %}
 <div class="card-grid">
   {% for r in records %}

@@ -613,6 +613,7 @@ def index(
             "status_counts": status_counts,
             "mastodon_enabled": mastodon_enabled,
             "bluesky_enabled": bluesky_enabled,
+            "syndication_enabled": mastodon_enabled or bluesky_enabled,
             "masto_limit": 500,
             "bsky_limit": 300,
         },
@@ -867,9 +868,11 @@ def list_view(
     bluesky_enabled = can_syndicate and bool(
         cfg().bluesky_handle and cfg().bluesky_app_password
     )
-    # Annotate records with the social-publish context so the unified
-    # `publish_social_modal` macro can render in-place. Tags are skipped
-    # to avoid an N+1 query per row; the user can add hashtags in the modal.
+    # Annotate records with the social-publish context so the per-row
+    # `publish_social_trigger` button can carry it; a single
+    # `publish_social_modal_root` per page reads it on click. Tags are
+    # skipped to avoid an N+1 query per row; the user can add hashtags in
+    # the modal.
     if can_syndicate and (mastodon_enabled or bluesky_enabled):
         for r in records:
             draft, img, alt, canon = _social_context(ct.name, r, [])
