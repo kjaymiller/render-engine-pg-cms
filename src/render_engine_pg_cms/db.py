@@ -73,7 +73,7 @@ def _order_clause(cols: set[str]) -> str:
 
 
 def _select_clause(
-    cols: set[str], excerpt_chars: int | None,
+    cols: set[str], excerpt_chars: int | None, omit_content: bool = False,
 ) -> tuple[str, bool]:
     """Build the select list for a bounded list read.
 
@@ -82,10 +82,19 @@ def _select_clause(
     full markdown of every post. Returns (select_list, truncated) where
     `truncated` says whether the content column was actually shortened.
 
+    `omit_content=True` drops the `content` column entirely (`'' AS
+    content`) for views that never render a body (e.g. the timeline's blog
+    and notes cards). The metalink column stays present but empty so row
+    shape and ordering are unchanged.
+
     `excerpt_chars=None` (internal, unbounded callers) selects everything
     so extraction/migration paths still see complete rows.
     """
-    if excerpt_chars is None or "content" not in cols:
+    if "content" not in cols:
+        return "*", False
+    if omit_content:
+        return "*, '' AS content", True
+    if excerpt_chars is None:
         return "*", False
     select = "*, LEFT(content, %(excerpt_chars)s) AS content"
     return select, True
@@ -98,6 +107,7 @@ def build_list_query(
     limit: int | None = None,
     offset: int = 0,
     excerpt_chars: int | None = None,
+    omit_content: bool = False,
 ) -> tuple[str, dict[str, Any], bool]:
     """Assemble the SELECT that `list_records` runs.
 
@@ -106,13 +116,15 @@ def build_list_query(
     that silently drifts. Returns (sql, params, truncated).
     """
     where = _status_clause(cols, status)
-    select, truncated = _select_clause(cols, excerpt_chars)
+    select, truncated = _select_clause(cols, excerpt_chars, omit_content)
     sql = f"SELECT {select} FROM {table}"
     if where:
         sql += f" WHERE {where}"
     sql += f" {_order_clause(cols)}"
     params: dict[str, Any] = {}
-    if truncated:
+    # `omit_content` and `LEFT(...)` are mutually exclusive; only the excerpt
+    # path needs the bound length.
+    if truncated and not omit_content and excerpt_chars is not None:
         params["excerpt_chars"] = max(1, int(excerpt_chars))
     if limit is not None:
         sql += " LIMIT %(limit)s"
@@ -130,6 +142,7 @@ def list_records(
     limit: int | None = None,
     offset: int = 0,
     excerpt_chars: int | None = None,
+    omit_content: bool = False,
 ) -> list[dict[str, Any]]:
     """Return records for one content type, newest first.
 
@@ -141,29 +154,32 @@ def list_records(
     full body. It is ignored when `limit is None`, since unbounded callers
     need complete rows. Rows whose content was cut carry `_truncated=True`
     so templates can distinguish an excerpt from a complete body.
+
+    `omit_content=True` drops the body entirely (empty string) for views
+    that render no body at all, like the timeline's blog/notes cards.
     """
     if not ct.table:
         return []
-    # Never excerpt unbounded reads: callers like the API create-lookup and
-    # any future export path rely on seeing the whole row.
+    # Never excerpt/omit unbounded reads: callers like the API create-lookup
+    # and any future export path rely on seeing the whole row.
     if limit is None:
         excerpt_chars = None
+        omit_content = False
     with _conn(cfg) as conn, conn.cursor() as cur:
         cols = _table_columns(cur, ct.table)
         sql, params, truncated = build_list_query(
             cols, ct.table, status=status, limit=limit, offset=offset,
-            excerpt_chars=excerpt_chars,
+            excerpt_chars=excerpt_chars, omit_content=omit_content,
         )
         cur.execute(sql, params)
         rows = list(cur.fetchall())
         if truncated:
+            content_len = 0 if omit_content else max(1, int(excerpt_chars))
             for r in rows:
                 # Mark rows that are at (or over) the cut so nothing renders
                 # a silently-shortened post as if it were the full body.
                 content = r.get("content")
-                r["_truncated"] = bool(content) and len(content) >= max(
-                    1, int(excerpt_chars)
-                )
+                r["_truncated"] = bool(content) and len(content) >= content_len
         return rows
 
 
@@ -204,6 +220,7 @@ def list_timeline(
     limit: int | None = None,
     offset: int = 0,
     excerpt_chars: int | None = None,
+    omit_content_types: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Merge records across content types, sorted newest first.
 
@@ -217,8 +234,13 @@ def list_timeline(
 
     `excerpt_chars` truncates each row's `content` in SQL for bounded reads
     so the merged page ships excerpts instead of every post's full body.
+
+    `omit_content_types` names types whose body is never needed on this
+    page (the timeline renders only titles + descriptions for blogs/notes),
+    so the DB doesn't ship that column at all for those types.
     """
     names = type_names or list(cfg.content_types.keys())
+    omit = omit_content_types or set()
     per_type = None if limit is None else max(0, offset) + max(0, limit)
     out: list[dict[str, Any]] = []
     for n in names:
@@ -227,6 +249,7 @@ def list_timeline(
             continue
         for r in list_records(
             cfg, ct, status=status, limit=per_type, excerpt_chars=excerpt_chars,
+            omit_content=n in omit,
         ):
             r = dict(r)
             r["_type"] = n

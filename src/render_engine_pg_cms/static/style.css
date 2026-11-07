@@ -144,27 +144,6 @@ body[data-theme="city"] .theme-chip { color: var(--cream); }
 body[data-theme="city"] .theme-chip:hover { background: color-mix(in srgb, var(--cream) 25%, transparent); color: var(--cream); }
 body[data-theme="city"] .theme-chip.is-active { background: var(--cream); color: var(--navy); }
 body[data-theme="city"] h1 em { color: var(--scarlet); }
-body[data-theme="city"] .tl-dot-microblog {
-  background: var(--scarlet);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--scarlet) 45%, transparent), 0 0 0 4px var(--paper);
-}
-body[data-theme="city"] .tl-dot-blog {
-  background: var(--navy);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--navy) 40%, transparent), 0 0 0 4px var(--paper);
-}
-body[data-theme="city"] .tl-dot-notes {
-  background: var(--sage);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--sage) 55%, transparent), 0 0 0 4px var(--paper);
-}
-body[data-theme="city"] .tl-item-blog .tl-badge { color: var(--cream); background: var(--navy); }
-body[data-theme="city"] .tl-item-microblog .tl-badge { color: var(--cream); background: var(--scarlet); }
-body[data-theme="city"] .tl-item-notes .tl-badge { color: var(--navy); background: var(--sage); }
-body[data-theme="city"] .tl-card {
-  border-color: color-mix(in srgb, var(--navy) 18%, var(--rule));
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.4) inset,
-    var(--shadow-soft);
-}
 body[data-theme="city"] .quick-box {
   background:
     radial-gradient(500px 200px at 100% 0%, var(--scarlet-wash), transparent 60%),
@@ -176,16 +155,6 @@ body[data-theme="city"] .quick-box {
 body[data-theme="city"] .colophon { color: var(--navy); border-top-color: color-mix(in srgb, var(--navy) 40%, transparent); }
 body[data-theme="city"] .page-head { border-bottom: 2px solid var(--scarlet); }
 body[data-theme="city"] .page-head[data-kicker]::before { color: var(--scarlet); }
-body[data-theme="city"] .tl-list::before {
-  background: linear-gradient(
-    180deg, transparent 0%,
-    color-mix(in srgb, var(--scarlet) 60%, transparent) 8%,
-    color-mix(in srgb, var(--sage) 60%, transparent) 50%,
-    color-mix(in srgb, var(--navy) 50%, transparent) 92%,
-    transparent 100%
-  );
-  width: 2px;
-}
 
 /* Per-theme primary button colors. */
 body, body[data-theme="home"] { --btn-bg: #13274f; --btn-fg: #f9f3e2; --btn-bg-hover: #2a416f; }
@@ -1652,55 +1621,30 @@ a.status:hover { transform: translateY(-1px) scale(1.05); filter: saturate(1.2);
 }
 .tl-list::before {
   content: ""; position: absolute;
-  top: 0; bottom: 0; left: 4.25rem;
+  top: 0; bottom: 0; left: 0;
   width: 1px;
-  background: linear-gradient(
-    180deg, transparent 0%, var(--rule) 8%,
-    var(--rule) 92%, transparent 100%
-  );
+  background: var(--rule);
 }
 
 .tl-item {
   display: grid;
-  grid-template-columns: 7.5rem 1fr;
-  gap: 1.5rem;
-  padding: 1rem 0;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 1rem;
+  padding: 0.75rem 0;
   position: relative;
 }
 
 .tl-rail {
   display: flex; flex-direction: column;
   align-items: flex-start;
-  gap: 0.45rem;
-  padding-top: 1.3rem;
+  gap: 0.25rem;
+  padding-top: 0.15rem;
   position: relative;
 }
-.tl-dot {
-  position: absolute;
-  top: 1.5rem; left: 4.05rem;
-  width: 11px; height: 11px;
-  border-radius: 50%;
-  background: var(--paper);
-  box-shadow: 0 0 0 2px var(--rule), 0 0 0 4px var(--paper);
-  z-index: 1;
-  transition: box-shadow 220ms var(--ease-soft), transform 220ms var(--ease-soft);
-}
-.tl-dot-microblog { background: var(--scarlet); box-shadow: 0 0 0 2px color-mix(in srgb, var(--scarlet) 35%, transparent), 0 0 0 4px var(--paper); }
-.tl-dot-blog      { background: var(--navy);    box-shadow: 0 0 0 2px color-mix(in srgb, var(--navy) 35%, transparent),    0 0 0 4px var(--paper); }
-.tl-dot-notes     { background: var(--sage);    box-shadow: 0 0 0 2px color-mix(in srgb, var(--sage) 40%, transparent),    0 0 0 4px var(--paper); }
-.tl-item:hover .tl-dot { transform: scale(1.25); }
-
-.tl-badge {
-  font-family: var(--mono); font-size: 0.66rem;
-  letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--ink-mute);
-  padding: 0.18rem 0.55rem;
-  border-radius: 999px;
-  background: var(--paper-2);
-}
-.tl-item-microblog .tl-badge { color: var(--scarlet); background: var(--scarlet-wash); }
-.tl-item-blog      .tl-badge { color: var(--navy);    background: var(--navy-wash); }
-.tl-item-notes     .tl-badge { color: var(--fern);    background: var(--sage-wash); }
+/* Flat timeline: no dots or pill badges. The rail is just a date column.
+   Scoped to .timeline so the webmentions log keeps its .tl-badge chips. */
+.timeline .tl-dot,
+.timeline .tl-badge { display: none; }
 
 .tl-when {
   font-family: var(--mono); font-size: 0.78rem;
@@ -1714,54 +1658,29 @@ a.status:hover { transform: translateY(-1px) scale(1.05); filter: saturate(1.2);
 .tl-card {
   background: var(--paper);
   border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
-  padding: 1.1rem 1.4rem 1.2rem;
-  box-shadow: var(--shadow-soft);
-  transition: border-color 220ms var(--ease-soft),
-              transform 220ms var(--ease-soft),
-              box-shadow 220ms var(--ease-soft);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem 0.95rem;
 }
 .tl-item:hover .tl-card {
   border-color: color-mix(in srgb, var(--clay) 30%, var(--rule));
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-lift);
 }
 .tl-card-head {
   display: flex; justify-content: space-between; align-items: flex-start;
-  gap: 1rem; margin-bottom: 0.6rem;
+  gap: 1rem; margin-bottom: 0.4rem;
 }
 .tl-title {
   margin: 0;
   font-family: var(--display);
   font-variation-settings: "opsz" 42, "wght" 600;
-  font-size: 1.18rem; font-weight: 600;
+  font-size: 1.1rem; font-weight: 600;
   line-height: 1.25; letter-spacing: -0.02em;
 }
 .tl-title a { color: var(--ink); }
 .tl-title a:hover { color: var(--clay); }
 
-.tl-body { font-size: 0.98rem; color: var(--ink); line-height: 1.6; }
-.tl-body.markdown p { margin: 0 0 0.6rem; }
-.tl-body.markdown p:last-child { margin-bottom: 0; }
-.tl-body.markdown a { color: var(--clay); border-bottom: 1px solid color-mix(in srgb, var(--clay) 30%, transparent); }
-.tl-body.markdown a:hover { border-bottom-color: var(--clay); }
-.tl-body.markdown code {
-  background: var(--paper-2); padding: 0.1rem 0.4rem; border-radius: 4px;
-  font-family: var(--mono); font-size: 0.86em;
-}
-.tl-body.markdown pre {
-  background: var(--paper-2); padding: 0.75rem 0.95rem;
-  border-radius: var(--radius); border: 1px solid var(--rule);
-  overflow-x: auto;
-}
-.tl-body.markdown pre code { background: transparent; padding: 0; }
-.tl-body.markdown img { max-width: 100%; border-radius: var(--radius); }
-.tl-body.markdown blockquote {
-  margin: 0.6rem 0; padding-left: 0.9rem;
-  border-left: 2px solid var(--clay); color: var(--ink-soft);
-}
+.tl-body { font-size: 0.95rem; color: var(--ink); line-height: 1.55; }
 
-.tl-desc { margin: 0; color: var(--ink-soft); font-size: 0.95rem; line-height: 1.55; }
+.tl-desc { margin: 0; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.5; }
 
 /* Excerpt shown when the list read truncated the post body in SQL. The body
    is a plain-text tail, so style it alongside .tl-desc rather than .markdown. */
@@ -1769,7 +1688,7 @@ a.status:hover { transform: translateY(-1px) scale(1.05); filter: saturate(1.2);
 .tl-excerpt a { color: var(--clay); white-space: nowrap; }
 
 .tl-img {
-  display: block; margin-top: 0.85rem;
+  display: block; margin-top: 0.75rem;
   border-radius: var(--radius); overflow: hidden;
   background: var(--paper-3);
 }
@@ -1777,18 +1696,16 @@ a.status:hover { transform: translateY(-1px) scale(1.05); filter: saturate(1.2);
 .tl-img img { width: 100%; max-height: 160px; object-fit: cover; display: block; }
 
 .tl-link {
-  display: inline-block; margin-top: 0.85rem;
-  padding: 0.35rem 0.75rem;
-  font-family: var(--mono); font-size: 0.78rem;
-  background: var(--paper-2); color: var(--dusk);
-  border-radius: 999px;
+  display: inline-block; margin-top: 0.75rem;
+  font-family: var(--mono); font-size: 0.76rem;
+  color: var(--dusk);
   max-width: 100%; word-break: break-all;
 }
-.tl-link:hover { background: var(--paper-3); color: var(--ink); }
+.tl-link:hover { color: var(--ink); }
 
 .tl-foot {
   display: flex; justify-content: space-between; align-items: center;
-  margin-top: 1rem; padding-top: 0.8rem;
+  margin-top: 0.75rem; padding-top: 0.6rem;
   border-top: 1px solid var(--rule);
   font-family: var(--mono); font-size: 0.72rem;
   color: var(--ink-mute);
@@ -1975,21 +1892,16 @@ main > *:nth-child(4) { animation-delay: 180ms; }
     flex-basis: 100%;
   }
 
-  /* Timeline: the 7.5rem date rail leaves almost nothing for the card,
-     so stack the rail above it and pull the spine to the left edge. */
+  /* Timeline: keep the flat date rail but let it shrink on narrow screens. */
   .tl-item {
-    grid-template-columns: 1fr;
-    gap: 0.55rem;
-    padding: 0.85rem 0 0.85rem 1.5rem;
+    grid-template-columns: 4.5rem 1fr;
+    gap: 0.65rem;
   }
-  .tl-list::before { left: 0.47rem; }
   .tl-rail {
-    flex-direction: row; align-items: center; flex-wrap: wrap;
-    gap: 0.5rem; padding-top: 0;
+    flex-wrap: wrap;
+    gap: 0.3rem; padding-top: 0;
   }
-  .tl-dot { top: 1.15rem; left: 0.15rem; }
-  .tl-when { flex-direction: row; align-items: baseline; gap: 0.35rem; }
-  .tl-card { padding: 0.95rem 1rem 1rem; }
+  .tl-when { gap: 0.15rem; }
   .tl-card-head { flex-wrap: wrap; gap: 0.5rem; }
   .status-cluster { margin-left: 0; flex-wrap: wrap; }
   .tl-foot { flex-wrap: wrap; gap: 0.5rem; }

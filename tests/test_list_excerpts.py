@@ -64,6 +64,9 @@ class FakeCursor:
             for r in rows:
                 if r.get("content"):
                     r["content"] = r["content"][:n]
+        if "'' AS content" in sql:
+            for r in rows:
+                r["content"] = ""
         if "limit" in params:
             rows = rows[: params["limit"]]
         self._result = rows
@@ -150,6 +153,42 @@ def test_no_excerpt_when_chars_none(log):
     assert "LEFT(content" not in sql
 
 
+def test_omit_content_drops_body_without_binding_length(log):
+    """The timeline renders no body for blog/notes, so the column is
+    emptied server-side and no excerpt length is bound."""
+    ct = _cfg().content_types["blog"]
+    rows = db.list_records(_cfg(), ct, limit=10, omit_content=True)
+    sql, params = _selects(log)[-1]
+    assert sql.count("'' AS content") == 1
+    assert "LEFT(content" not in sql
+    assert "excerpt_chars" not in params
+    assert all(r["content"] == "" for r in rows)
+
+
+def test_omit_content_ignored_when_unbounded(log):
+    """limit=None is the internal/extraction path; it must keep full rows
+    even when a caller passes omit_content."""
+    ct = _cfg().content_types["blog"]
+    rows = db.list_records(_cfg(), ct, limit=None, omit_content=True)
+    sql, _ = _selects(log)[-1]
+    assert "'' AS content" not in sql
+    assert {r["id"]: r["content"] for r in rows}[1] == BIG
+
+
+def test_timeline_omits_only_named_types(log):
+    cfg = _cfg()
+    db.list_timeline(
+        cfg,
+        ["blog", "microblog"],
+        limit=5,
+        omit_content_types={"blog"},
+    )
+    omitted = [s for s, _ in _selects(log) if "'' AS content" in s]
+    truncated = [s for s, _ in _selects(log) if "LEFT(content" in s]
+    assert len(omitted) == 1  # blog
+    assert truncated == []    # microblog keeps its body (the post *is* the text)
+
+
 def test_timeline_passes_excerpt_through_to_each_type(log):
     cfg = _cfg()
     rows = db.list_timeline(
@@ -191,6 +230,28 @@ def test_build_list_query_unbounded_has_no_excerpt(log):
     assert "LEFT(content" not in sql
     assert "LIMIT" not in sql
     assert params == {}
+
+
+def test_build_list_query_omit_matches_list_records_sql(log):
+    """scripts/explain_timeline.py builds the `omit` case via
+    build_list_query; list_records(omit_content=True) must run the same
+    statement so the measurement is of the real app query."""
+    ct = _cfg().content_types["blog"]
+    with db._conn(_cfg()) as conn, conn.cursor() as cur:
+        cols = db._table_columns(cur, ct.table)
+    sql, params, _truncated = db.build_list_query(
+        cols, ct.table, status="all", limit=10, offset=5,
+        excerpt_chars=600, omit_content=True,
+    )
+    assert "'' AS content" in sql
+    assert "excerpt_chars" not in params  # length unused when body is dropped
+    db.list_records(
+        _cfg(), ct, status="all", limit=10, offset=5,
+        excerpt_chars=600, omit_content=True,
+    )
+    ran_sql, ran_params = _selects(log)[-1]
+    assert ran_sql == sql
+    assert ran_params == params
 
 
 # --- batched tags -----------------------------------------------------------

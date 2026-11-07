@@ -72,8 +72,6 @@
           x-transition:enter-start="tl-enter-start"
           x-transition:enter-end="tl-enter-end">
         <div class="tl-rail">
-          <span class="tl-dot tl-dot-{{ r._type }}" aria-hidden="true"></span>
-          <span class="tl-badge">{{ r._type }}</span>
           <time class="tl-when" datetime="{{ when }}">
             {{ when.strftime("%b %d") if when else "—" }}
             <small>{{ when.strftime("%Y · %H:%M") if when else "" }}</small>
@@ -84,8 +82,8 @@
             <h3 class="tl-title">
               <a href="/c/{{ r._type }}/{{ r.id }}">
                 {% if r.title %}{{ r.title }}
-                {% elif r.content %}{{ r.content | striptags | truncate(80) }}
-                {% else %}(untitled){% endif %}
+                {% elif r._type == "microblog" and r.content %}{{ r.content | striptags | truncate(80) }}
+                {% else %}#{{ r.id }}{% endif %}
               </a>
             </h3>
             <span class="status-cluster">
@@ -108,18 +106,14 @@
             </span>
           </header>
 
+          {# Timeline cards stay body-free: microblogs show a short excerpt
+             (the text is the post); blogs/notes show only their description. #}
           {% if r._type == "microblog" and r.content %}
-            {% if r._truncated %}
-              <div class="tl-body tl-excerpt">{{ r.content | striptags | truncate(280) }}
-                <a href="/c/{{ r._type }}/{{ r.id }}">Read more →</a>
-              </div>
-            {% else %}
-              <div class="tl-body markdown">{{ r.content | md | safe }}</div>
-            {% endif %}
+            <div class="tl-body tl-excerpt">{{ r.content | striptags | truncate(200) }}
+              <a href="/c/{{ r._type }}/{{ r.id }}">Read more →</a>
+            </div>
           {% elif r.description %}
-            <p class="tl-desc">{{ r.description }}</p>
-          {% elif r.content and r._type != "microblog" %}
-            <p class="tl-desc">{{ r.content | striptags | truncate(200) }}</p>
+            <p class="tl-desc">{{ r.description | truncate(200) }}</p>
           {% endif %}
 
           {% if r.image_url %}

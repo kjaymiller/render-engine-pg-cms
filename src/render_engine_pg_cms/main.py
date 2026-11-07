@@ -461,6 +461,20 @@ VALID_STATUSES = ("all", "published", "drafts", "scheduled")
 # Tune with LIST_EXCERPT_CHARS; 0 disables truncation (loads full content).
 LIST_EXCERPT_CHARS = int(os.environ.get("LIST_EXCERPT_CHARS", "600"))
 
+# Content types that keep their post body in a listing. Any type NOT listed
+# here renders a title/description-only card or a plain table, so its
+# `content` column is dropped in SQL — otherwise the page ships every body
+# just to discard it.
+#   * Timeline (index): blog/notes cards show title + description only; the
+#     microblog text *is* the post, so it keeps a short excerpt.
+#   * List browsers: microblog (markdown feed) and notes (cards with a
+#     140-char content fallback) read `content`; every other type renders as
+#     a plain table and never touches it.
+# The two sets match today but are kept separate because they track two
+# different templates; change one only if that template's rendering changes.
+TIMELINE_KEEPS_BODY = {"microblog", "notes"}
+LIST_KEEPS_BODY = {"microblog", "notes"}
+
 def _excerpt_chars() -> int | None:
     return LIST_EXCERPT_CHARS if LIST_EXCERPT_CHARS > 0 else None
 
@@ -514,9 +528,15 @@ def index(
     pages = max(1, (total + per - 1) // per)
     page = min(page, pages)
     start = (page - 1) * per
+    # Blog/notes timeline cards show only title + description (the body is a
+    # click away), so don't ship `content` for them at all. Microblog keeps a
+    # short excerpt because the text *is* the post.
     rows = db.list_timeline(
         cfg(), timeline_types, status=status, limit=per, offset=start,
         excerpt_chars=_excerpt_chars(),
+        omit_content_types={
+            n for n in timeline_types if n not in TIMELINE_KEEPS_BODY
+        },
     )
     _annotate_scheduled(rows)
     mastodon_enabled = bool(cfg().mastodon_instance)
@@ -790,6 +810,9 @@ def list_view(
     records = db.list_records(
         cfg(), ct, status=status, limit=per, offset=(page - 1) * per,
         excerpt_chars=_excerpt_chars(),
+        # Types that render as a plain table never touch `content`, so skip
+        # the column entirely instead of shipping 600 chars per row to discard.
+        omit_content=ct.name not in LIST_KEEPS_BODY,
     )
     _annotate_scheduled(records)
     can_syndicate = ct.name in ("microblog", "blog")

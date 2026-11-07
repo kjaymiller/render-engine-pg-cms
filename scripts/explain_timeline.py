@@ -7,7 +7,9 @@ page shipped every post's full markdown body. This measures the real query
 drift from the app) both ways:
 
   * "full"    — SELECT * (what list pages used to do)
-  * "excerpt" — LEFT(content, N) (what list pages do now)
+  * "excerpt" — LEFT(content, N) (microblog cards, notes list)
+  * "omit"    — '' AS content (blog/notes timeline + table lists, which
+                 render no body at all)
 
 For each it reports wall-clock latency, rows returned, approximate bytes over
 the wire, and the PostgreSQL plan (EXPLAIN ANALYZE, with buffer counts).
@@ -156,10 +158,11 @@ def _find_offenders(node: dict) -> list[str]:
 def _run_case(
     conn, label: str, cols: set[str], table: str, *, status: str,
     limit: int, offset: int, excerpt_chars: int | None, repeat: int,
+    omit_content: bool = False,
 ) -> bool:
     sql, params, truncated = db.build_list_query(
         cols, table, status=status, limit=limit, offset=offset,
-        excerpt_chars=excerpt_chars,
+        excerpt_chars=excerpt_chars, omit_content=omit_content,
     )
     latencies, row_count = _time_query(conn, sql, params, repeat)
 
@@ -173,8 +176,14 @@ def _run_case(
     # EXPLAIN (ANALYZE) executes the query; drop the protocol cost line noise.
     plan_exec = plan.get("Execution Time")
 
+    if omit_content:
+        how = "omitted"
+    elif not truncated:
+        how = "off"
+    else:
+        how = params.get("excerpt_chars")
     print(f"\n  [{label}] status={status} limit={limit} offset={offset} "
-          f"excerpt={'off' if not truncated else params.get('excerpt_chars')}")
+          f"excerpt={how}")
     print(f"    rows={row_count}  payload≈{_human(nbytes)}  "
           f"median={_median(latencies):.1f} ms  "
           f"min={min(latencies):.1f}  max={max(latencies):.1f}  "
@@ -244,6 +253,11 @@ def main() -> int:
                 _run_case(conn, "excerpt", cols, ct.table, status=args.status,
                           limit=args.per, offset=off,
                           excerpt_chars=args.excerpt_chars, repeat=args.repeat)
+                if has_content:
+                    _run_case(conn, "omit", cols, ct.table, status=args.status,
+                              limit=args.per, offset=off,
+                              excerpt_chars=args.excerpt_chars, repeat=args.repeat,
+                              omit_content=True)
 
     print("\nNote: OFFSET cost grows linearly with the offset — a jump between "
           "--all-offsets values is the signal to add keyset pagination.")
