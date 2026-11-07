@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -118,6 +119,13 @@ AUTOPUBLISH_DEBOUNCE_SECONDS = float(
     os.environ.get("AUTOPUBLISH_DEBOUNCE_SECONDS", "60")
 )
 AUTOPUBLISH_ENABLED = os.environ.get("AUTOPUBLISH", "1") not in ("0", "false", "no")
+
+# Per-request timing. Every response carries an `X-Process-Time` header (ms)
+# so `curl -w`/DevTools can see server time without any logging. Requests
+# slower than SLOW_REQUEST_MS are also logged as warnings (0 disables the
+# warning so only the header remains). Set to e.g. 250 in prod for a quiet
+# "only the slow ones" signal; leave 0 in dev if you want the header only.
+SLOW_REQUEST_MS = float(os.environ.get("SLOW_REQUEST_MS", "0"))
 _pending_publish_task: "asyncio.Task | None" = None
 # The app's event loop, captured at startup. Lets sync (threadpool) routes —
 # e.g. the JSON API handlers — schedule autopublish safely, since they have no
@@ -361,6 +369,28 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 from .api import router as api_router  # noqa: E402 — avoid circular at import time
 app.include_router(api_router)
+
+
+@app.middleware("http")
+async def add_process_time(request: Request, call_next):
+    """Stamp every response with its server-side duration, and warn on slow ones.
+
+    Cheap by design: one perf_counter() pair per request. The `X-Process-Time`
+    header is the primary signal (visible to curl/DevTools with no log noise);
+    the warning is opt-in via SLOW_REQUEST_MS so production logs stay readable.
+    """
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    response.headers["X-Process-Time"] = f"{elapsed_ms:.1f}"
+    if SLOW_REQUEST_MS and elapsed_ms >= SLOW_REQUEST_MS:
+        log.warning(
+            "SLOW %s %s %s %.1fms (limit %.0fms)",
+            request.method, request.url.path, response.status_code,
+            elapsed_ms, SLOW_REQUEST_MS,
+        )
+    return response
+
 
 SKIP_COLUMNS = {"id", "created_at", "updated_at"}
 # Columns we treat as required when present on a content type.

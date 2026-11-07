@@ -20,6 +20,22 @@ The CMS reads configuration from environment variables plus the site's `pyprojec
 | --------------- | ------------------------------------------------------------------------------------------------------------- | ------- |
 | `CMS_API_TOKEN` | Bearer token required by `/api/v1/*`. Unset = the JSON API returns 503 on every call. Generate with `openssl rand -hex 32`. | —       |
 
+## Performance / request timing
+
+| Variable           | Purpose                                                                                                                               | Default |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `SLOW_REQUEST_MS`  | Requests at or above this many milliseconds are logged as `SLOW …` warnings. `0` disables the warning (the `X-Process-Time` response header is always set). | `0`     |
+
+Every response carries an `X-Process-Time` header with the server-side duration in milliseconds, so you can measure any route without touching the logs:
+
+```bash
+curl -s -o /dev/null -D - http://localhost:8000/ | grep -i x-process-time
+# or, client-side end-to-end:
+curl -s -o /dev/null -w '%{time_total}s %{size_download} bytes\n' http://localhost:8000/
+```
+
+Set `SLOW_REQUEST_MS=250` in production to surface only genuinely slow routes in your existing stdout log.
+
 ## GitHub (Publish button + auto-publish)
 
 | Variable                       | Purpose                                                  | Default       |
