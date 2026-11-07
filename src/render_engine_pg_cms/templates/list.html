@@ -55,7 +55,13 @@
       {{ status_cluster(r) }}
     </header>
     {% if r.content %}
-      <div class="feed-body markdown">{{ r.content | md | safe }}</div>
+      {% if r._truncated %}
+        <div class="feed-body feed-excerpt">{{ r.content | striptags | truncate(280) }}
+          <a href="/c/{{ ct.name }}/{{ r.id }}">Read more →</a>
+        </div>
+      {% else %}
+        <div class="feed-body markdown">{{ r.content | md | safe }}</div>
+      {% endif %}
     {% endif %}
     {% if r.image_url %}
       <a class="feed-img" href="/c/{{ ct.name }}/{{ r.id }}">

@@ -456,6 +456,14 @@ def _render_edit(
 
 VALID_STATUSES = ("all", "published", "drafts", "scheduled")
 
+# List/timeline pages show an excerpt, not the whole post body. Truncating in
+# SQL keeps a page of hundreds of posts from shipping every full markdown blob.
+# Tune with LIST_EXCERPT_CHARS; 0 disables truncation (loads full content).
+LIST_EXCERPT_CHARS = int(os.environ.get("LIST_EXCERPT_CHARS", "600"))
+
+def _excerpt_chars() -> int | None:
+    return LIST_EXCERPT_CHARS if LIST_EXCERPT_CHARS > 0 else None
+
 
 def _annotate_scheduled(rows: list[dict]) -> None:
     """Tag rows with `_scheduled=True` when they're not drafts but have a
@@ -507,7 +515,8 @@ def index(
     page = min(page, pages)
     start = (page - 1) * per
     rows = db.list_timeline(
-        cfg(), timeline_types, status=status, limit=per, offset=start
+        cfg(), timeline_types, status=status, limit=per, offset=start,
+        excerpt_chars=_excerpt_chars(),
     )
     _annotate_scheduled(rows)
     mastodon_enabled = bool(cfg().mastodon_instance)
@@ -779,7 +788,8 @@ def list_view(
     pages = max(1, (total + per - 1) // per)
     page = min(page, pages)
     records = db.list_records(
-        cfg(), ct, status=status, limit=per, offset=(page - 1) * per
+        cfg(), ct, status=status, limit=per, offset=(page - 1) * per,
+        excerpt_chars=_excerpt_chars(),
     )
     _annotate_scheduled(records)
     can_syndicate = ct.name in ("microblog", "blog")

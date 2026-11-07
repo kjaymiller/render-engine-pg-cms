@@ -64,6 +64,12 @@ if [ $rc -eq 5 ]; then echo "→ no tests collected"; exit 0; fi
 exit $rc
 """
 
+[tasks.explain]
+description = "Time + EXPLAIN ANALYZE the list/timeline reads (extra args passed through)"
+shell = "bash -c"
+usage = 'arg "[args]..." var=#true'
+run = '''fnox exec -- uv run python scripts/explain_timeline.py ${usage_args:-}'''
+
 [tasks.lock]
 description = "Update locked dependencies"
 run = "uv lock --upgrade"

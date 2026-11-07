@@ -109,7 +109,13 @@
           </header>
 
           {% if r._type == "microblog" and r.content %}
-            <div class="tl-body markdown">{{ r.content | md | safe }}</div>
+            {% if r._truncated %}
+              <div class="tl-body tl-excerpt">{{ r.content | striptags | truncate(280) }}
+                <a href="/c/{{ r._type }}/{{ r.id }}">Read more →</a>
+              </div>
+            {% else %}
+              <div class="tl-body markdown">{{ r.content | md | safe }}</div>
+            {% endif %}
           {% elif r.description %}
             <p class="tl-desc">{{ r.description }}</p>
           {% elif r.content and r._type != "microblog" %}

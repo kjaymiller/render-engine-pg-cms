@@ -72,36 +72,99 @@ def _order_clause(cols: set[str]) -> str:
     return order + "id DESC"
 
 
+def _select_clause(
+    cols: set[str], excerpt_chars: int | None,
+) -> tuple[str, bool]:
+    """Build the select list for a bounded list read.
+
+    When `excerpt_chars` is set and the table has a `content` column, the
+    body is truncated server-side so a page of list rows doesn't ship the
+    full markdown of every post. Returns (select_list, truncated) where
+    `truncated` says whether the content column was actually shortened.
+
+    `excerpt_chars=None` (internal, unbounded callers) selects everything
+    so extraction/migration paths still see complete rows.
+    """
+    if excerpt_chars is None or "content" not in cols:
+        return "*", False
+    select = "*, LEFT(content, %(excerpt_chars)s) AS content"
+    return select, True
+
+
+def build_list_query(
+    cols: set[str],
+    table: str,
+    status: str = "all",
+    limit: int | None = None,
+    offset: int = 0,
+    excerpt_chars: int | None = None,
+) -> tuple[str, dict[str, Any], bool]:
+    """Assemble the SELECT that `list_records` runs.
+
+    Split out so diagnostics (scripts/explain_timeline.py) can EXPLAIN the
+    *exact* statement the app issues instead of a hand-copied approximation
+    that silently drifts. Returns (sql, params, truncated).
+    """
+    where = _status_clause(cols, status)
+    select, truncated = _select_clause(cols, excerpt_chars)
+    sql = f"SELECT {select} FROM {table}"
+    if where:
+        sql += f" WHERE {where}"
+    sql += f" {_order_clause(cols)}"
+    params: dict[str, Any] = {}
+    if truncated:
+        params["excerpt_chars"] = max(1, int(excerpt_chars))
+    if limit is not None:
+        sql += " LIMIT %(limit)s"
+        params["limit"] = max(0, int(limit))
+    if offset:
+        sql += " OFFSET %(offset)s"
+        params["offset"] = max(0, int(offset))
+    return sql, params, truncated
+
+
 def list_records(
     cfg: Config,
     ct: ContentType,
     status: str = "all",
     limit: int | None = None,
     offset: int = 0,
+    excerpt_chars: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return records for one content type, newest first.
 
     `limit`/`offset` are applied in SQL as bound parameters so callers only
     pull the window they render. `limit=None` means no LIMIT (internal use).
+
+    `excerpt_chars` truncates the `content` column in SQL for bounded reads
+    (list pages), so a page window ships excerpts rather than every post's
+    full body. It is ignored when `limit is None`, since unbounded callers
+    need complete rows. Rows whose content was cut carry `_truncated=True`
+    so templates can distinguish an excerpt from a complete body.
     """
     if not ct.table:
         return []
+    # Never excerpt unbounded reads: callers like the API create-lookup and
+    # any future export path rely on seeing the whole row.
+    if limit is None:
+        excerpt_chars = None
     with _conn(cfg) as conn, conn.cursor() as cur:
         cols = _table_columns(cur, ct.table)
-        where = _status_clause(cols, status)
-        sql = f"SELECT * FROM {ct.table}"
-        if where:
-            sql += f" WHERE {where}"
-        sql += f" {_order_clause(cols)}"
-        params: dict[str, Any] = {}
-        if limit is not None:
-            sql += " LIMIT %(limit)s"
-            params["limit"] = max(0, int(limit))
-        if offset:
-            sql += " OFFSET %(offset)s"
-            params["offset"] = max(0, int(offset))
+        sql, params, truncated = build_list_query(
+            cols, ct.table, status=status, limit=limit, offset=offset,
+            excerpt_chars=excerpt_chars,
+        )
         cur.execute(sql, params)
-        return list(cur.fetchall())
+        rows = list(cur.fetchall())
+        if truncated:
+            for r in rows:
+                # Mark rows that are at (or over) the cut so nothing renders
+                # a silently-shortened post as if it were the full body.
+                content = r.get("content")
+                r["_truncated"] = bool(content) and len(content) >= max(
+                    1, int(excerpt_chars)
+                )
+        return rows
 
 
 def count_by_status(cfg: Config, ct: ContentType) -> dict[str, int]:
@@ -140,6 +203,7 @@ def list_timeline(
     status: str = "all",
     limit: int | None = None,
     offset: int = 0,
+    excerpt_chars: int | None = None,
 ) -> list[dict[str, Any]]:
     """Merge records across content types, sorted newest first.
 
@@ -150,6 +214,9 @@ def list_timeline(
     Each type is asked for at most `offset + limit` rows in SQL: any row in
     the merged window must be within the first `offset + limit` rows of its
     own type, so the result is exact without reading whole tables.
+
+    `excerpt_chars` truncates each row's `content` in SQL for bounded reads
+    so the merged page ships excerpts instead of every post's full body.
     """
     names = type_names or list(cfg.content_types.keys())
     per_type = None if limit is None else max(0, offset) + max(0, limit)
@@ -158,7 +225,9 @@ def list_timeline(
         ct = cfg.content_types.get(n)
         if not ct or not ct.table:
             continue
-        for r in list_records(cfg, ct, status=status, limit=per_type):
+        for r in list_records(
+            cfg, ct, status=status, limit=per_type, excerpt_chars=excerpt_chars,
+        ):
             r = dict(r)
             r["_type"] = n
             out.append(r)
@@ -195,6 +264,37 @@ def _tags_for(cur: psycopg.Cursor, ct: ContentType, record_id: int) -> list[str]
         {"id": record_id},
     )
     return [r["name"] for r in cur.fetchall()]
+
+
+def tags_for_records(
+    cfg: Config, ct: ContentType, record_ids: list[int],
+) -> dict[int, list[str]]:
+    """Return {record_id: [tag, ...]} for a batch of records in one query.
+
+    Callers that need tags for a whole page should use this instead of
+    calling `get_record` (or `_tags_for`) per row — that is an N+1. One
+    `= ANY(...)` query covers the entire page, and record ids with no tags
+    are simply absent from the result.
+    """
+    if not ct.has_tags or not record_ids:
+        return {}
+    join_table = f"{ct.table}_tags"
+    fk = f"{ct.table}_id"
+    with _conn(cfg) as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT {join_table}.{fk} AS record_id, tags.name AS name
+            FROM tags
+            JOIN {join_table} ON {join_table}.tag_id = tags.id
+            WHERE {join_table}.{fk} = ANY(%(ids)s)
+            ORDER BY {join_table}.{fk}, tags.name
+            """,
+            {"ids": [int(i) for i in record_ids]},
+        )
+        out: dict[int, list[str]] = {}
+        for r in cur.fetchall():
+            out.setdefault(r["record_id"], []).append(r["name"])
+        return out
 
 
 def list_all_tags(cfg: Config) -> list[str]:

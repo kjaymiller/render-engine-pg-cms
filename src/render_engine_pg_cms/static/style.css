@@ -906,6 +906,10 @@ table.records td:nth-child(3) {
   line-height: 1.6;
   color: var(--ink);
 }
+/* Body truncated in SQL (see LIST_EXCERPT_CHARS). Rendered as plain text so a
+   cut-off markdown body can't produce broken markup. */
+.feed-excerpt { color: var(--ink-soft); }
+.feed-excerpt a { color: var(--clay); white-space: nowrap; }
 .feed-body.markdown p { margin: 0 0 0.75rem; }
 .feed-body.markdown p:last-child { margin-bottom: 0; }
 .feed-body.markdown a {
@@ -1758,6 +1762,11 @@ a.status:hover { transform: translateY(-1px) scale(1.05); filter: saturate(1.2);
 }
 
 .tl-desc { margin: 0; color: var(--ink-soft); font-size: 0.95rem; line-height: 1.55; }
+
+/* Excerpt shown when the list read truncated the post body in SQL. The body
+   is a plain-text tail, so style it alongside .tl-desc rather than .markdown. */
+.tl-excerpt { color: var(--ink-soft); }
+.tl-excerpt a { color: var(--clay); white-space: nowrap; }
 
 .tl-img {
   display: block; margin-top: 0.85rem;
