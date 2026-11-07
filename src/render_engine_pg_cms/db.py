@@ -1,6 +1,7 @@
 """Thin psycopg layer — CRUD driven by ContentType definitions from config.py."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,6 +13,37 @@ from .config import ContentType, Config
 
 def _conn(cfg: Config) -> psycopg.Connection:
     return psycopg.connect(cfg.connection_string, row_factory=dict_row)
+
+
+def page_conn(cfg: Config) -> psycopg.Connection:
+    """Open one connection a page render can share across its several reads.
+
+    Routes that issue more than one independent read (e.g. the timeline's
+    status counts plus the per-type list, or a collection's counts plus its
+    page) should wrap the whole render in this so the remote TLS handshake
+    is paid once per request instead of once per query. Callers pass the
+    returned connection as `conn=` to the read functions; close it in a
+    `finally` (or use it as a context manager) when the render is done.
+    """
+    return _conn(cfg)
+
+
+def _reuse(conn: psycopg.Connection | None, cfg: Config):
+    """Context manager yielding `conn` if given, else a fresh connection.
+
+    A page render makes two kinds of read (status counts + the list itself).
+    Against a remote DB each `psycopg.connect` pays a full TLS handshake
+    (~200ms to Aiven), so routes share one connection across both reads via
+    `_page_conn` instead of opening one per query.
+    """
+    if conn is not None:
+        return _null_ctx(conn)
+    return _conn(cfg)
+
+
+@contextmanager
+def _null_ctx(value):
+    yield value
 
 
 # Per-process cache of {table: {column,...}}. The CMS reads tables directly
@@ -135,6 +167,96 @@ def build_list_query(
     return sql, params, truncated
 
 
+def build_status_counts_query(cols: set[str], table: str) -> str:
+    """The single-row status-count aggregate for one table.
+
+    Always returns the same four columns (`all`, `published`, `drafts`,
+    `scheduled`) so several tables can be UNION ALL'd together. A status
+    whose filter doesn't apply to this table counts every row, matching
+    `list_records`.
+    """
+    selects = ['COUNT(*) AS "all"']
+    for status in ("published", "drafts", "scheduled"):
+        where = _status_clause(cols, status) or "TRUE"
+        selects.append(f'COUNT(*) FILTER (WHERE {where}) AS "{status}"')
+    return f"SELECT {', '.join(selects)} FROM {table}"
+
+
+def counts_by_status_for(
+    cfg: Config, cts: list[ContentType], conn: psycopg.Connection | None = None,
+) -> dict[str, dict[str, int]]:
+    """Return {type_name: {published, drafts, scheduled, all}} for several
+    content types in a single round-trip.
+
+    The timeline header sums counts across every timeline type; asking each
+    type separately is N queries (and N connections) against a possibly
+    remote database. One `UNION ALL` over the per-table aggregates collapses
+    that to a single round-trip. Types without a configured table are
+    omitted from the result (callers treat a missing key as all-zero).
+    """
+    parts: list[str] = []
+    names: list[str] = []
+    with _reuse(conn, cfg) as c, c.cursor() as cur:
+        for ct in cts:
+            if not ct.table:
+                continue
+            cols = _table_columns(cur, ct.table)
+            parts.append(
+                f"SELECT %(name_{len(names)})s AS type_name, "
+                + build_status_counts_query(cols, ct.table).removeprefix(
+                    "SELECT "
+                )
+            )
+            names.append(ct.name)
+        if not parts:
+            return {}
+        params = {f"name_{i}": n for i, n in enumerate(names)}
+        cur.execute(" UNION ALL ".join(parts), params)
+        out: dict[str, dict[str, int]] = {}
+        for row in cur.fetchall():
+            key = row["type_name"]
+            out[key] = {
+                k: int(row.get(k) or 0)
+                for k in ("all", "published", "drafts", "scheduled")
+            }
+    return out
+
+
+def _list_records_cur(
+    cur: psycopg.Cursor,
+    ct: ContentType,
+    status: str = "all",
+    limit: int | None = None,
+    offset: int = 0,
+    excerpt_chars: int | None = None,
+    omit_content: bool = False,
+) -> list[dict[str, Any]]:
+    """Read one type's records on an existing cursor/connection.
+
+    Shared by `list_records` (own connection) and `list_timeline` (reuses
+    one connection across every type), so merging a timeline over a remote
+    database pays the TLS handshake once instead of per content type.
+    """
+    if limit is None:
+        excerpt_chars = None
+        omit_content = False
+    cols = _table_columns(cur, ct.table)
+    sql, params, truncated = build_list_query(
+        cols, ct.table, status=status, limit=limit, offset=offset,
+        excerpt_chars=excerpt_chars, omit_content=omit_content,
+    )
+    cur.execute(sql, params)
+    rows = list(cur.fetchall())
+    if truncated:
+        content_len = 0 if omit_content else max(1, int(excerpt_chars))
+        for r in rows:
+            # Mark rows that are at (or over) the cut so nothing renders
+            # a silently-shortened post as if it were the full body.
+            content = r.get("content")
+            r["_truncated"] = bool(content) and len(content) >= content_len
+    return rows
+
+
 def list_records(
     cfg: Config,
     ct: ContentType,
@@ -143,6 +265,7 @@ def list_records(
     offset: int = 0,
     excerpt_chars: int | None = None,
     omit_content: bool = False,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Return records for one content type, newest first.
 
@@ -160,30 +283,16 @@ def list_records(
     """
     if not ct.table:
         return []
-    # Never excerpt/omit unbounded reads: callers like the API create-lookup
-    # and any future export path rely on seeing the whole row.
-    if limit is None:
-        excerpt_chars = None
-        omit_content = False
-    with _conn(cfg) as conn, conn.cursor() as cur:
-        cols = _table_columns(cur, ct.table)
-        sql, params, truncated = build_list_query(
-            cols, ct.table, status=status, limit=limit, offset=offset,
+    with _reuse(conn, cfg) as c, c.cursor() as cur:
+        return _list_records_cur(
+            cur, ct, status=status, limit=limit, offset=offset,
             excerpt_chars=excerpt_chars, omit_content=omit_content,
         )
-        cur.execute(sql, params)
-        rows = list(cur.fetchall())
-        if truncated:
-            content_len = 0 if omit_content else max(1, int(excerpt_chars))
-            for r in rows:
-                # Mark rows that are at (or over) the cut so nothing renders
-                # a silently-shortened post as if it were the full body.
-                content = r.get("content")
-                r["_truncated"] = bool(content) and len(content) >= content_len
-        return rows
 
 
-def count_by_status(cfg: Config, ct: ContentType) -> dict[str, int]:
+def count_by_status(
+    cfg: Config, ct: ContentType, conn: psycopg.Connection | None = None,
+) -> dict[str, int]:
     """Return {published, drafts, scheduled, all} counts for one content type,
     computed with a single aggregate query.
 
@@ -193,13 +302,9 @@ def count_by_status(cfg: Config, ct: ContentType) -> dict[str, int]:
     out = {"all": 0, "published": 0, "drafts": 0, "scheduled": 0}
     if not ct.table:
         return out
-    with _conn(cfg) as conn, conn.cursor() as cur:
+    with _reuse(conn, cfg) as c, c.cursor() as cur:
         cols = _table_columns(cur, ct.table)
-        selects = ['COUNT(*) AS "all"']
-        for status in ("published", "drafts", "scheduled"):
-            where = _status_clause(cols, status) or "TRUE"
-            selects.append(f'COUNT(*) FILTER (WHERE {where}) AS "{status}"')
-        cur.execute(f"SELECT {', '.join(selects)} FROM {ct.table}")
+        cur.execute(build_status_counts_query(cols, ct.table))
         row = cur.fetchone() or {}
         for key in out:
             out[key] = int(row.get(key) or 0)
@@ -221,6 +326,7 @@ def list_timeline(
     offset: int = 0,
     excerpt_chars: int | None = None,
     omit_content_types: set[str] | None = None,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Merge records across content types, sorted newest first.
 
@@ -243,17 +349,20 @@ def list_timeline(
     omit = omit_content_types or set()
     per_type = None if limit is None else max(0, offset) + max(0, limit)
     out: list[dict[str, Any]] = []
-    for n in names:
-        ct = cfg.content_types.get(n)
-        if not ct or not ct.table:
-            continue
-        for r in list_records(
-            cfg, ct, status=status, limit=per_type, excerpt_chars=excerpt_chars,
-            omit_content=n in omit,
-        ):
-            r = dict(r)
-            r["_type"] = n
-            out.append(r)
+    # One connection for every type: against a remote database the TLS
+    # handshake dominates, so merging N types shouldn't pay it N times.
+    with _reuse(conn, cfg) as c, c.cursor() as cur:
+        for n in names:
+            ct = cfg.content_types.get(n)
+            if not ct or not ct.table:
+                continue
+            for r in _list_records_cur(
+                cur, ct, status=status, limit=per_type,
+                excerpt_chars=excerpt_chars, omit_content=n in omit,
+            ):
+                r = dict(r)
+                r["_type"] = n
+                out.append(r)
 
     out.sort(key=_timeline_key, reverse=True)
     if limit is None:

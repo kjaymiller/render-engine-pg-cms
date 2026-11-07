@@ -546,28 +546,39 @@ def index(
         n for n in ("microblog", "blog", "notes")
         if n in cfg().content_types
     ]
-    # Aggregate counts across timeline types for the status tabs.
-    status_counts = {k: 0 for k in VALID_STATUSES}
-    for n in timeline_types:
-        per_type = db.count_by_status(cfg(), cfg().content_types[n])
-        for k, v in per_type.items():
-            status_counts[k] = status_counts.get(k, 0) + v
-    # The status counts already give the filtered total, so only the
-    # current page window is fetched from the database.
-    total = status_counts.get(status, 0)
-    pages = max(1, (total + per - 1) // per)
-    page = min(page, pages)
-    start = (page - 1) * per
-    # Blog/notes timeline cards show only title + description (the body is a
-    # click away), so don't ship `content` for them at all. Microblog keeps a
-    # short excerpt because the text *is* the post.
-    rows = db.list_timeline(
-        cfg(), timeline_types, status=status, limit=per, offset=start,
-        excerpt_chars=_excerpt_chars(),
-        omit_content_types={
-            n for n in timeline_types if n not in TIMELINE_KEEPS_BODY
-        },
-    )
+    # One connection for the whole render: the counts and the list are
+    # independent reads, and each fresh connect pays a full TLS handshake
+    # to a possibly-remote database.
+    conn = db.page_conn(cfg())
+    try:
+        # Aggregate counts across timeline types for the status tabs. One
+        # UNION ALL query beats one per type when the DB is remote.
+        status_counts = {k: 0 for k in VALID_STATUSES}
+        per_type_counts = db.counts_by_status_for(
+            cfg(), [cfg().content_types[n] for n in timeline_types], conn=conn,
+        )
+        for per_type in per_type_counts.values():
+            for k, v in per_type.items():
+                status_counts[k] = status_counts.get(k, 0) + v
+        # The status counts already give the filtered total, so only the
+        # current page window is fetched from the database.
+        total = status_counts.get(status, 0)
+        pages = max(1, (total + per - 1) // per)
+        page = min(page, pages)
+        start = (page - 1) * per
+        # Blog/notes timeline cards show only title + description (the body is a
+        # click away), so don't ship `content` for them at all. Microblog keeps a
+        # short excerpt because the text *is* the post.
+        rows = db.list_timeline(
+            cfg(), timeline_types, status=status, limit=per, offset=start,
+            excerpt_chars=_excerpt_chars(),
+            omit_content_types={
+                n for n in timeline_types if n not in TIMELINE_KEEPS_BODY
+            },
+            conn=conn,
+        )
+    finally:
+        conn.close()
     _annotate_scheduled(rows)
     mastodon_enabled = bool(cfg().mastodon_instance)
     bluesky_enabled = bool(cfg().bluesky_handle and cfg().bluesky_app_password)
@@ -833,17 +844,23 @@ def list_view(
     per = max(5, min(per, 100))
     if status not in VALID_STATUSES:
         status = "all"
-    status_counts = db.count_by_status(cfg(), ct)
-    total = status_counts.get(status, 0)
-    pages = max(1, (total + per - 1) // per)
-    page = min(page, pages)
-    records = db.list_records(
-        cfg(), ct, status=status, limit=per, offset=(page - 1) * per,
-        excerpt_chars=_excerpt_chars(),
-        # Types that render as a plain table never touch `content`, so skip
-        # the column entirely instead of shipping 600 chars per row to discard.
-        omit_content=ct.name not in LIST_KEEPS_BODY,
-    )
+    # One connection for both reads — see the note in `index`.
+    conn = db.page_conn(cfg())
+    try:
+        status_counts = db.count_by_status(cfg(), ct, conn=conn)
+        total = status_counts.get(status, 0)
+        pages = max(1, (total + per - 1) // per)
+        page = min(page, pages)
+        records = db.list_records(
+            cfg(), ct, status=status, limit=per, offset=(page - 1) * per,
+            excerpt_chars=_excerpt_chars(),
+            # Types that render as a plain table never touch `content`, so skip
+            # the column entirely instead of shipping 600 chars per row to discard.
+            omit_content=ct.name not in LIST_KEEPS_BODY,
+            conn=conn,
+        )
+    finally:
+        conn.close()
     _annotate_scheduled(records)
     can_syndicate = ct.name in ("microblog", "blog")
     mastodon_enabled = can_syndicate and bool(cfg().mastodon_instance)

@@ -57,6 +57,13 @@ class FakeCursor:
                 {"record_id": i, "name": name} for i in ids for name in TAGS.get(i, [])
             ]
             return
+        if 'COUNT(*) AS "all"' in sql:
+            # Status-count aggregate (possibly several UNION ALL'd together).
+            self._result = [
+                self._counts_for(name)
+                for name in self._union_names(sql, params)
+            ]
+            return
         table = sql.split(" FROM ", 1)[1].split()[0]
         rows = [dict(r) for r in TABLES[table]]
         if "LEFT(content" in sql:
@@ -70,6 +77,32 @@ class FakeCursor:
         if "limit" in params:
             rows = rows[: params["limit"]]
         self._result = rows
+
+    def _union_names(self, sql, params):
+        """Names of the tables a counts query covers.
+
+        A single-table aggregate names its table after FROM; a UNION ALL
+        carries a bound %(name_N)s alias per branch.
+        """
+        if "UNION ALL" in sql:
+            names = []
+            for key in sorted(params):
+                if key.startswith("name_"):
+                    names.append(params[key])
+            return names
+        return [sql.split(" FROM ", 1)[1].split()[0]]
+
+    def _counts_for(self, name):
+        rows = TABLES.get(name, [])
+        published = sum(1 for r in rows if not r.get("draft"))
+        drafts = sum(1 for r in rows if r.get("draft"))
+        return {
+            "type_name": name,
+            "all": len(rows),
+            "published": published,
+            "drafts": drafts,
+            "scheduled": 0,
+        }
 
     def fetchall(self):
         return self._result
@@ -91,13 +124,38 @@ class FakeConn:
     def cursor(self):
         return FakeCursor(self.log)
 
+    def close(self):
+        pass
+
 
 @pytest.fixture
 def log(monkeypatch):
     calls: list = []
-    monkeypatch.setattr(db, "_conn", lambda cfg: FakeConn(calls))
+    conns: list = []
+
+    def _fake_conn(cfg):
+        conns.append(1)
+        return FakeConn(calls)
+
+    monkeypatch.setattr(db, "_conn", _fake_conn)
     db._table_columns_cache.clear()
     yield calls
+    db._table_columns_cache.clear()
+
+
+@pytest.fixture
+def conns(monkeypatch):
+    """Like `log`, but hands back the number of connections opened."""
+    calls: list = []
+    opened: list = []
+
+    def _fake_conn(cfg):
+        opened.append(1)
+        return FakeConn(calls)
+
+    monkeypatch.setattr(db, "_conn", _fake_conn)
+    db._table_columns_cache.clear()
+    yield opened
     db._table_columns_cache.clear()
 
 
@@ -298,3 +356,80 @@ def test_tags_for_records_binds_id_list(log):
     assert "= ANY(%(ids)s)" in sql
     assert params["ids"] == [7, 8]
     assert "7, 8" not in sql
+
+
+# --- round-trip reduction --------------------------------------------------
+#
+# The DB can be remote (TLS handshake ~200ms, ~20-50ms per round-trip), so
+# the thing worth locking in is *how many* queries and connections a page
+# render costs — not how fast any single query runs.
+
+
+def test_list_timeline_uses_one_connection_for_all_types(conns):
+    """Merging N types must not open N connections: the TLS handshake is
+    per-connection, so one shared connection is the whole point."""
+    db.list_timeline(_cfg(), ["blog", "microblog"], limit=5)
+    assert len(conns) == 1
+
+
+def test_counts_by_status_for_is_a_single_query(log):
+    """The timeline sums status counts across its types; one UNION ALL
+    query replaces one round-trip per type."""
+    cfg = _cfg()
+    out = db.counts_by_status_for(
+        cfg, [cfg.content_types[n] for n in ("blog", "microblog")]
+    )
+    count_queries = [s for s, _ in log if 'COUNT(*) AS "all"' in s]
+    assert len(count_queries) == 1
+    assert "UNION ALL" in count_queries[0]
+    # Both types are represented with the same four keys as count_by_status.
+    for name in ("blog", "microblog"):
+        assert set(out[name]) == {"all", "published", "drafts", "scheduled"}
+    assert out["blog"]["all"] == len(TABLES["blog"])
+    assert out["microblog"]["all"] == len(TABLES["microblog"])
+
+
+def test_counts_by_status_for_skips_table_less_types(log):
+    cfg = _cfg()
+    empty = ContentType(name="events", table="")
+    out = db.counts_by_status_for(cfg, [cfg.content_types["blog"], empty])
+    assert list(out) == ["blog"]
+    assert len([s for s, _ in log if 'COUNT(*) AS "all"' in s]) == 1
+
+
+def test_counts_union_matches_per_type_count(log):
+    """The batched counts must equal the per-type counts it replaces."""
+    cfg = _cfg()
+    batched = db.counts_by_status_for(cfg, [cfg.content_types["blog"]])
+    single = db.count_by_status(cfg, cfg.content_types["blog"])
+    assert batched["blog"] == single
+
+
+def test_page_conn_shared_across_reads(conns):
+    """A route wraps its counts + list in one `page_conn`, so the whole
+    render costs a single connection (one TLS handshake) instead of two."""
+    cfg = _cfg()
+    conn = db.page_conn(cfg)
+    conns.clear()  # the explicit page_conn is the one we count
+    try:
+        db.counts_by_status_for(
+            cfg, [cfg.content_types["blog"]], conn=conn,
+        )
+        db.list_timeline(cfg, ["blog", "microblog"], limit=5, conn=conn)
+    finally:
+        conn.close()
+    # Reusing the passed connection means no *additional* connects happen.
+    assert conns == []
+
+
+@pytest.mark.parametrize("fn_name", ["count_by_status", "list_records"])
+def test_reads_open_own_connection_without_shared(conns, fn_name):
+    """Without an explicit conn the helpers still self-provision — that's
+    what every non-page caller (API, CLI) relies on."""
+    cfg = _cfg()
+    ct = cfg.content_types["blog"]
+    if fn_name == "count_by_status":
+        db.count_by_status(cfg, ct)
+    else:
+        db.list_records(cfg, ct, limit=5)
+    assert len(conns) == 1
