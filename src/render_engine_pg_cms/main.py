@@ -1428,10 +1428,12 @@ def _pick_image(ct_name: str, record: dict) -> tuple[str | None, str]:
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+_SLUG_APOSTROPHE_RE = re.compile(r"['\u2019]")
 
 
 def _slugify(text: str) -> str:
-    slug = _SLUG_RE.sub("-", text.lower()).strip("-")
+    # Drop apostrophes outright so "Don't" becomes "dont", not "don-t".
+    slug = _SLUG_RE.sub("-", _SLUG_APOSTROPHE_RE.sub("", text.lower())).strip("-")
     return slug[:80]
 
 
